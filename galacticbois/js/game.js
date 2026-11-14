@@ -103,7 +103,7 @@ const NB=[
 /* ============ state ============ */
 function fresh(){return {stage:'title',max:0,inst:{cam:true,spec:true,mcs:true,radar:true},
   sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},red:false,prop:250,
-  dep:0,transfer:'hohmann',orbit:'aero',P:[],log:[],aura:0,health:0,retries:0,loose:0,fail:[],degr:1,calib:1,name:'Wayfarer',guided:true,quiz:{},bolts:0};}
+  dep:0,transfer:'hohmann',orbit:'aero',P:[],log:[],aura:0,health:0,retries:0,loose:0,fail:[],degr:1,calib:1,name:'Wayfarer',guided:true,quiz:{},bolts:0,gopen:{}};}
 let S=fresh(), RUN=0, DEMO={k:1};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms*DEMO.k));
 const $=id=>document.getElementById(id);
@@ -153,7 +153,7 @@ function checks(){
   add('Downlink keeps up with data',d.down>=d.dataPass,`${d.dataPass} Gb generated per full pass, ${d.down} Gb transmitted`,false);
   const FIX=['Remove an instrument, pick lighter parts or load less propellant.','Pick cheaper parts or leave an instrument behind.','Go back to the trajectory and move the departure date.',
     'Fit larger solar arrays, or choose systems that draw less power.','Fit a larger battery.','Add propellant, cut mass, or pick a flight plan that needs less speed change.','','Fit a computer with more storage.','Install at least one instrument.'];
-  c.forEach((x,i)=>x.fix=FIX[i]||'');
+  c.forEach((x,i)=>{x.fix=FIX[i]||'';x.why=CHECK_WHY[i]||'';});
   return c;
 }
 const pt=(name,got,max,note)=>S.P.push({name,got,max,note});
@@ -336,7 +336,7 @@ VIEW.title=()=>{
 };
 
 VIEW.briefing=()=>{
-  main.innerHTML=head(1,'Mission briefing','ASEA Mission Control',`Kestrel left three questions unanswered. ${S.name} gets one chance at them, with less mass and less money than Kestrel had.`)+say('reyes','You get 1,200 kilograms and 180 million credits. Kestrel had more of both and still went dark. Spend yours better. I will be on the loop the whole way.')+coach(['Read the three science questions. They decide what is worth carrying.','Check the limits and the six objectives.','Tap any <b>dotted word</b> in the game for a plain-language explanation.'])+`
+  main.innerHTML=head(1,'Mission briefing','ASEA Mission Control',`Kestrel left three questions unanswered. ${S.name} gets one chance at them, with less mass and less money than Kestrel had.`)+say('reyes','You get 1,200 kilograms and 180 million credits. Kestrel had more of both and still went dark. Spend yours better. I will be on the loop the whole way.')+coach(['Read the three science questions. They decide what is worth carrying.','Check the limits and the six objectives.','Tap any <b>dotted word</b> in the game for a plain-language explanation.'])+guide('briefing')+`
   <section class="grid g3">
     ${[['Question 1','What can surface minerals reveal?','Clays and carbonates only form in water. Finding them tells you where water once sat, and for how long.'],
        ['Question 2','How does the atmosphere vary?','Temperature, dust and water vapour change with altitude, season and storm. Profiles show the climate at work.'],
@@ -357,10 +357,10 @@ VIEW.briefing=()=>{
 
 VIEW.science=()=>{
   const d=design();
-  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`
+  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+guide('science')+`
   <section class="grid g2">${IK.map(k=>{const i=INST[k];return `<button class="opt" data-k="${k}" aria-pressed="${S.inst[k]}">
     <span class="kicker">${i.tag} · ${S.inst[k]?'installed':'left on the ground'}</span><b style="font-family:var(--display);font-size:1.6rem;text-transform:uppercase">${i.name}</b>
-    <span>${i.desc}</span><span class="s">${i.mass} kg · ${i.cost}M · ${i.power} W · ${i.data} Gb per observation · reliability ${f0(i.rel*100)}%</span>
+    <span>${i.desc}</span><span class="use">${INSTX[k]}</span><span class="s">${i.mass} kg · ${i.cost}M · ${i.power} W · ${i.data} Gb per observation · reliability ${f0(i.rel*100)}%</span>
     <span class="s" style="color:var(--ice)">Returns: ${i.out}</span><span class="s">Teaches: ${i.teach}</span></button>`;}).join('')}</section>
   <section class="panel"><p class="kicker">Payload totals</p><div class="grid g3">
     ${meter('Payload mass',d.on.reduce((s,k)=>s+INST[k].mass,0),122,'kg','ok')}${meter('Payload cost',d.on.reduce((s,k)=>s+INST[k].cost,0),74,'M','ok')}${meter('Payload power',d.instP,136,'W','ok')}</div>
@@ -371,7 +371,7 @@ VIEW.science=()=>{
 };
 
 VIEW.planning=()=>{
-  main.innerHTML=head(3,'Interplanetary planning','Mission Planning Center','Earth and Mars both keep moving while you travel. You have to aim at where Mars will be on arrival day, and that only works on certain dates.')+say('reyes','Mars is a moving target. Slide the date until the white cross lands on Mars. Miss by a few degrees and you pay for it in propellant.')+coach(['Drag the <b>departure date</b> until the flight plan says “Window open”.','Pick a transfer. A '+T('hohmann','Hohmann transfer')+' is the cheapest route.','Pick your orbit at Mars, and watch how each choice changes the '+T('deltav')+' you need.'])+`
+  main.innerHTML=head(3,'Interplanetary planning','Mission Planning Center','Earth and Mars both keep moving while you travel. You have to aim at where Mars will be on arrival day, and that only works on certain dates.')+say('reyes','Mars is a moving target. Slide the date until the white cross lands on Mars. Miss by a few degrees and you pay for it in propellant.')+coach(['Drag the <b>departure date</b> until the flight plan says “Window open”.','Pick a transfer. A '+T('hohmann','Hohmann transfer')+' is the cheapest route.','Pick your orbit at Mars, and watch how each choice changes the '+T('deltav')+' you need.'])+guide('planning')+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div>
     <label for="dep" class="kicker">Departure date</label><input type="range" id="dep" min="0" max="700" step="1" value="${S.dep}">
     <div class="row between"><button class="ghost" id="d-">−1 day</button><b class="num" id="depLab"></b><button class="ghost" id="d+">+1 day</button></div>
@@ -390,7 +390,7 @@ VIEW.planning=()=>{
       <tr><th>Approach speed at Mars</th><td class="num">${f2(p.tr.vinf)} km/s</td></tr><tr><th>Correction for timing error</th><td class="num">${f0(p.pen)} m/s</td></tr>
       <tr><th>Orbit insertion burn</th><td class="num">${f0(p.moi)} m/s</td></tr><tr><th>Cruise and orbit trims</th><td class="num">100 m/s</td></tr>
       <tr><th><b style="color:var(--text)">Total speed change needed</b> (${T('deltav')})</th><td class="num"><b>${f0(p.need)} m/s</b></td></tr>
-      <tr><th>Signal delay on arrival</th><td class="num">${f1(p.light)} min one way</td></tr></table></div>`;chrome();};
+      <tr><th>Signal delay on arrival</th><td class="num">${f1(p.light)} min one way</td></tr></table></div>${planWhy(p)}`;chrome();};
   $('dep').oninput=e=>{S.dep=+e.target.value;upd();};
   $('d-').onclick=()=>{S.dep=Math.max(0,S.dep-1);$('dep').value=S.dep;upd();};
   $('d+').onclick=()=>{S.dep=Math.min(700,S.dep+1);$('dep').value=S.dep;upd();};
@@ -407,14 +407,14 @@ function tierStat(k,t){
   return `${t.mass} kg · ${t.cost}M · ${extra}`;
 }
 VIEW.design=()=>{
-  main.innerHTML=head(4,'Spacecraft construction','Spacecraft Design Facility','Every part you add makes the spacecraft heavier, and a heavier spacecraft needs more propellant to brake at Mars. Good design is choosing what to leave out.')+say('park','First draft is on your desk. It will not pass review, I ran short on propellant. Also, I counted 4,212 bolts on this thing. I intend to arrive with 4,212.')+coach(['Start from a template, or change one system at a time.','Watch <b>Live budgets</b>. Red means over the limit.','Fix everything in the “Not ready” list, then send it to review.'])+`
+  main.innerHTML=head(4,'Spacecraft construction','Spacecraft Design Facility','Every part you add makes the spacecraft heavier, and a heavier spacecraft needs more propellant to brake at Mars. Good design is choosing what to leave out.')+say('park','First draft is on your desk. It will not pass review, I ran short on propellant. Also, I counted 4,212 bolts on this thing. I intend to arrive with 4,212.')+coach(['Start from a template, or change one system at a time.','Watch <b>Live budgets</b>. Red means over the limit.','Fix everything in the “Not ready” list, then send it to review.'])+guide('design')+`
   <section class="split"><div class="panel">
     <div class="sys"><div class="lab"><b>Start from a template</b><span class="dim" style="font-size:.85rem;max-width:52ch">Each one passes review on a well-timed Hohmann transfer with aerobraking.</span></div>
       <div class="opts">${Object.keys(PRE).map(k=>`<button class="opt" data-pre="${k}"><b>${PRE[k].n}</b><span class="s">${PRE[k].d}</span></button>`).join('')}</div></div>
-    ${Object.keys(SYS).map(k=>`<div class="sys"><div class="lab"><b>${SYS[k].label}</b><span class="dim" style="font-size:.85rem;max-width:52ch">${SYS[k].why}</span></div>
+    ${Object.keys(SYS).map(k=>`<div class="sys"><div class="lab"><b>${SYS[k].label}</b><span class="dim" style="font-size:.85rem;max-width:52ch">${SYS[k].why}</span></div>${more('Explain this system',SYSX[k])}
       <div class="opts">${SYS[k].tiers.map((t,i)=>`<button class="opt" data-sys="${k}" data-i="${i}" aria-pressed="${S.sel[k]===i}"><b>${t.n}</b><span class="s">${tierStat(k,t)}</span></button>`).join('')}</div></div>`).join('')}
-    <div class="sys"><div class="lab"><b>Propellant</b><span class="num" id="propLab"></span></div><input type="range" id="prop" min="100" max="700" step="10" value="${S.prop}" aria-label="Propellant load"></div>
-    <div class="sys"><div class="lab"><b>Redundancy</b><span class="dim" style="font-size:.85rem">Spare computer, valves and heaters</span></div>
+    <div class="sys"><div class="lab"><b>Propellant</b><span class="num" id="propLab"></span></div><input type="range" id="prop" min="100" max="700" step="10" value="${S.prop}" aria-label="Propellant load">${more('Explain propellant',SYSX.prop)}</div>
+    <div class="sys"><div class="lab"><b>Redundancy</b><span class="dim" style="font-size:.85rem">Spare computer, valves and heaters</span></div>${more('Explain redundancy',SYSX.red)}
       <div class="opts"><button class="opt" id="red" aria-pressed="${S.red}"><b>Redundant critical components</b><span class="s">+45 kg · +12M · halves failure risk</span></button></div></div>
     <div class="sys"><div class="lab"><b>Scientific instruments</b></div><div class="opts">${IK.map(k=>`<button class="opt" data-inst="${k}" aria-pressed="${S.inst[k]}"><b>${INST[k].name}</b><span class="s">${INST[k].mass} kg · ${INST[k].cost}M · ${INST[k].power} W · ${INST[k].data} Gb</span></button>`).join('')}</div></div>
   </div><div class="panel sticky" id="readout"></div></section>
@@ -441,8 +441,8 @@ VIEW.design=()=>{
 
 VIEW.review=()=>{
   const c=checks(),crit=c.filter(x=>x.crit),fails=crit.filter(x=>!x.ok).length;
-  const row=x=>`<div class="chk"><span class="pill ${x.ok?'go':x.crit?'nogo':'warn'}">${x.ok?'Go':x.crit?'No go':'Caution'}</span><div><b>${x.name}</b><div class="dim" style="font-size:.88rem">${x.detail}${!x.ok&&x.fix?` <b style="color:var(--text)">Fix:</b> ${x.fix}`:''}</div></div></div>`;
-  main.innerHTML=head(5,'Technical review','Launch Readiness Board',fails?`The board found ${fails} critical problem${fails>1?'s':''}. Each one comes with a suggested fix.`:'Every critical check passes. Cautions will not stop the launch, but they show where the mission is likely to hurt.')+say('reyes',fails?'No-go items are not opinions. Fix them and come back.':`The board has no objections, and neither do I. Take ${S.name} to the pad.`)+`
+  const row=x=>`<div class="chk"><span class="pill ${x.ok?'go':x.crit?'nogo':'warn'}">${x.ok?'Go':x.crit?'No go':'Caution'}</span><div><b>${x.name}</b><div class="dim" style="font-size:.88rem">${x.detail}${!x.ok&&x.fix?` <b style="color:var(--text)">Fix:</b> ${x.fix}`:''}</div>${x.why?more('Why this check?',x.why):''}</div></div>`;
+  main.innerHTML=head(5,'Technical review','Launch Readiness Board',fails?`The board found ${fails} critical problem${fails>1?'s':''}. Each one comes with a suggested fix.`:'Every critical check passes. Cautions will not stop the launch, but they show where the mission is likely to hurt.')+say('reyes',fails?'No-go items are not opinions. Fix them and come back.':`The board has no objections, and neither do I. Take ${S.name} to the pad.`)+guide('review')+`
   <section class="grid g2"><div class="panel"><p class="kicker">Critical checks</p>${crit.map(row).join('')}</div>
   <div class="panel"><p class="kicker">Cautions</p>${c.filter(x=>!x.crit).map(row).join('')}
     ${teach('Engineering requirements, margins and redundancy. Real missions hold reviews like this at every design stage.')}
@@ -472,7 +472,7 @@ function burn(dv){const m=Math.min(S.prop,massFor(dv));S.prop-=m;S.mass-=m;retur
 /* ---------- cruise ---------- */
 VIEW.cruise=()=>{
   const f=S.fl;
-  main.innerHTML=head(6,'Interplanetary cruise','Spacecraft Operations Center',`${S.name} flies itself most of the way. Each tick of the clock is one week. You watch its health and step in when something goes wrong.`)+coach(['Watch the map and the telemetry. There is nothing to press until an alert appears.','When an alert appears, read it and choose. There is no timer unless it says so.','One major problem always strikes mid-cruise. Be ready to correct your course.'])+`
+  main.innerHTML=head(6,'Interplanetary cruise','Spacecraft Operations Center',`${S.name} flies itself most of the way. Each tick of the clock is one week. You watch its health and step in when something goes wrong.`)+coach(['Watch the map and the telemetry. There is nothing to press until an alert appears.','When an alert appears, read it and choose. There is no timer unless it says so.','One major problem always strikes mid-cruise. Be ready to correct your course.'])+guide('cruise')+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div><div id="prog"></div></div>
   <div class="grid"><div class="panel" id="tele"></div><div class="panel"><p class="kicker">Flight log</p><div class="log" id="clog"></div></div></div></section>`;
   const c=cv('sys',460,460);
@@ -494,7 +494,7 @@ VIEW.cruise=()=>{
       S.cr.tick++;S.health-=.12;upd();
       const fr=S.cr.tick/N,ev=S.cr.ev;
       if(!ev.comm&&fr>=.25){ev.comm=1;await evComm();}
-      else if(!ev.main&&fr>=.5){ev.main=1;const q=await evOffCourse();if(my!==RUN)return;await auraScene(q);}
+      else if(!ev.main&&fr>=.5){ev.main=1;const q=await evOffCourse();if(my!==RUN)return;await auraScene(q);if(my!==RUN)return;await tcmExplain(q);}
       else if(!ev.power&&fr>=.75){ev.power=1;await evPower();}
       else await rollRandom(S.cr.v);
       if(my!==RUN)return;upd();
@@ -518,8 +518,11 @@ async function evComm(){
   if(r==='seq'){got=10;msg='The sequence ran on time. This is how real deep-space missions operate: plan first, then let the spacecraft act.';}
   else if(r==='auto'){got=[4,8,10][a];msg=a?'The onboard software started the test at the right moment.':'A basic computer cannot judge the navigation fix. It started late and the test had to be repeated.';if(!a)burn(4);}
   else{got=1;msg='Your command arrived minutes too late. The test was scrubbed and repeated the next week, using extra propellant.';burn(8);S.health-=1.5;}
-  pt('Communication delay',got,10);lg('Communication delay: '+msg);
-  await tell('Outcome',got>=8?'Test complete':'Lesson learned',`<p>${msg}</p>${teach('Speed of light, radio communications, signal propagation, autonomous spacecraft systems.')}`);
+  pt('Communication delay',got,10,msg);lg('Communication delay: '+msg);
+  const rt=f1(+delay*2),why={seq:`A time-tagged sequence is stored on board and run from the spacecraft’s own clock, so the ${rt}-minute round trip never mattered. Real missions work this way: plan first, then let the spacecraft act.`,
+    auto:a?`Onboard autonomy can spot the navigation fix for itself. Your computer’s autonomy is ${['low','medium','high'][a]}, which earns ${[4,8,10][a]} of 10 here.`:'A basic computer has no autonomy, so it could not recognise the fix in time. It earns 4 of 10, and the repeat used propellant.',
+    live:`The test had to start within 2 minutes of the fix, but a command takes ${delay} minutes to arrive and the confirmation takes as long again (${rt} minutes in all). The window had closed before your command arrived.`}[r];
+  await tell('Outcome',got>=8?'Test complete':'Lesson learned',`<p>${msg}</p>${explain([why])}${teach('Speed of light, radio communications, signal propagation, autonomous spacecraft systems.')}`);
 }
 
 function evOffCourse(){return new Promise(res=>{
@@ -546,10 +549,10 @@ function evOffCourse(){return new Promise(res=>{
     $('tcmOut').innerHTML=meter('Window closes in',left,LIM,'s',left<10?'over':'warn')+`<p class="num" style="font-size:.8rem;margin-top:6px">Predicted miss ${f0(res_*9000)} km · propellant ${f1(massFor(mag))} kg</p>`;return res_;};
   $('tang').oninput=e=>{ang=+e.target.value;draw();};$('tmag').oninput=e=>{mag=+e.target.value;draw();};
   const fin=()=>{if(done)return;done=true;clearInterval(iv);const r=draw();o.remove();
-    burn(mag);const km=r*9000;let q,got;
+    const usedKg=burn(mag);const km=r*9000;let q,got;
     if(km<8000){q=2;got=20;}else if(km<30000){q=1;got=13;}else if(km<90000){q=0;got=6;}else{q=0;got=0;}
     if(r>1)burn(r*1.5);
-    pt('Off course',got,20);S.tcm={km,mag,clean:r>1?r*1.5:0};
+    pt('Off course',got,20,`Residual miss ${f0(km)} km after a ${mag} m/s burn.`);S.tcm={km,mag,used:usedKg,need:need.m,dir:Math.round(deg(need.a)),set:ang,clean:r>1?r*1.5:0};
     lg(`Off course: ${mag} m/s correction burn left a ${f0(km)} km miss${r>1?`, cleaned up later for another ${f0(r*1.5)} m/s`:''}.`);res({q,km});};
   const iv=setInterval(()=>{left-=1;if(left<=0)fin();else draw();},1000*DEMO.k);
   $('tcmGo').onclick=fin;draw();window.__tcm={need,set:(a,m)=>{ang=a;mag=m;draw();},fin};
@@ -569,8 +572,12 @@ async function evPower(){
   else if(r==='safe'){got=ok?5:8;burn(15);msg='The spacecraft stayed safe. With a week of tracking missing, navigation needed an extra 15 m/s to tighten the approach.';}
   else if(ok){got=9;msg='Your arrays had enough margin to absorb the loss. Good design made this an easy call.';}
   else{got=0;S.health-=10;S.calib-=.05;msg='The battery drained during a manoeuvre and the spacecraft browned out. It recovered, with damage.';}
-  pt('Power degradation',got,10);lg('Power degradation: '+msg);
-  await tell('Outcome',got>=7?'Power stable':'Brownout',`<p>${msg}</p>${teach('Solar irradiance, the inverse-square law, power management, energy storage.')}`);
+  pt('Power degradation',got,10,msg);lg('Power degradation: '+msg);
+  const why={inst:'Skipping the in-flight calibrations frees some power, but the instruments arrive less well calibrated (calibration −5%, which trims the value of every observation).',
+    shut:'Switching off the heaters and the backup radio that you can spare lowers the load without losing anything the mission needs.',
+    safe:'Safe mode protects the hardware, but a week of tracking data is lost, so navigation needed 15 m/s more to tighten the approach.',
+    go:ok?'Your arrays had enough margin to absorb the loss, so nothing had to change.':'With no change of plan, the load was higher than the arrays could now supply. The battery drained during a manoeuvre and the spacecraft browned out (health −10%, calibration −5%).'}[r];
+  await tell('Outcome',got>=7?'Power stable':'Brownout',`<p>${msg}</p>${explain([`Output after the fault was ${f0(gen)} W against a cruise load of ${f0(cruiseLoad)} W. A 15% margin needs ${f0(cruiseLoad*1.15)} W, so your margin was ${ok?'enough':'not enough'}.`,why])}${teach('Solar irradiance, the inverse-square law, power management, energy storage.')}`);
   if(S.quiz.sun===undefined)await quiz('sun','A spacecraft moves twice as far from the Sun. How much sunlight now reaches its solar arrays?',['Half as much','A quarter as much','The same amount'],1,'Light spreads over an area that grows with the square of the distance: 2 × 2 = 4 times the area, so a quarter of the power. This is the inverse-square law.');
 }
 
@@ -591,7 +598,9 @@ async function evBolt(v){
   if(r==='motor'){if(Math.random()<[.7,.85,.95][a])msg='The hinge motor pulled the joint tight.';else{S.health-=2;got=3;msg='The motor stalled. The joint is stable but weakened.';}}
   else if(r==='thr'){const m=Math.min(3,S.prop);S.prop-=m;S.mass-=m;msg='A short thruster pulse settled the array.';}
   else{S.health-=4;S.loose++;got=0;msg='The array now rattles on every manoeuvre. More bolts are likely to follow.';}
-  pt('A bolt fell out',got,4);lg('A bolt fell out. '+msg);toast(msg);
+  pt('A bolt fell out',got,4,msg);lg('A bolt fell out. '+msg);toast(msg);
+  if(S.guided){const why={motor:'The hinge motor can re-seat a loose joint for free, but it is not certain. Your computer’s autonomy sets the odds: 70%, 85% or 95%.',thr:'A short thruster pulse is guaranteed to settle the array, so it always works, at the price of 3 kg of propellant.',no:'Ignoring it is free now but not later. The array rattles on every manoeuvre, health falls 4 points, and each loose bolt makes the next one 25% more likely.'}[r];
+    await tell('Outcome','A bolt fell out: what happened',`<p>${msg}</p>${explain([why])}`);}
 }
 function evLights(){return new Promise(res=>{
   const t0=performance.now(),o=document.createElement('div');o.className='blackout';
@@ -599,7 +608,7 @@ function evLights(){return new Promise(res=>{
   document.body.appendChild(o);
   o.onpointermove=e=>{o.style.setProperty('--mx',e.clientX+'px');o.style.setProperty('--my',e.clientY+'px');};
   $('breaker').focus();
-  $('breaker').onclick=()=>{const s=(performance.now()-t0)/1000;o.remove();const got=s<6?3:s<14?2:1;pt('Lights shut off',got,3);
+  $('breaker').onclick=()=>{const s=(performance.now()-t0)/1000;o.remove();const got=s<6?3:s<14?2:1;pt('Lights shut off',got,3,`Breaker reset in ${f1(s)} seconds.`);
     lg(`Lights shut off. Breaker reset in ${f1(s)} s.`);toast(`Lights restored in ${f1(s)} seconds.`);res();};
 });}
 async function explode(demo){
@@ -613,8 +622,8 @@ async function explode(demo){
 /* ---------- Mars orbit insertion ---------- */
 VIEW.moi=()=>{
   const f=S.fl,my=RUN;
-  if(!S.ckpt){const s=JSON.stringify(S);S.ckpt=s;}
-  main.innerHTML=head(7,'Mars orbit insertion','Spacecraft Operations Center',`${S.name} is moving too fast for Mars to hold. Fire the engine near closest approach to drop below ${T('escape','escape speed')}. Burn too little and you fly straight past. Mars is ${f1(f.light)} light-minutes away, so this is really the sequence the spacecraft will fly alone.`)+coach(['Press <b>Start the approach</b> when you are ready.','Wait until the spacecraft enters the green zone.','<b>Hold</b> the engine button until the white speed marker sits inside the green band, then let go.'])+`
+  if(!S.ckpt){S.moiProp=S.prop;const s=JSON.stringify(S);S.ckpt=s;}
+  main.innerHTML=head(7,'Mars orbit insertion','Spacecraft Operations Center',`${S.name} is moving too fast for Mars to hold. Fire the engine near closest approach to drop below ${T('escape','escape speed')}. Burn too little and you fly straight past. Mars is ${f1(f.light)} light-minutes away, so this is really the sequence the spacecraft will fly alone.`)+coach(['Press <b>Start the approach</b> when you are ready.','Wait until the spacecraft enters the green zone.','<b>Hold</b> the engine button until the white speed marker sits inside the green band, then let go.'])+guide('moi')+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="moiC"></canvas></div></div>
   <div class="panel"><p class="kicker">Burn control</p><div id="moiOut"></div>
     <button class="btn" id="fire" style="touch-action:none;user-select:none">Start the approach</button><p class="dim" style="font-size:.85rem">Mouse, touch or the space bar. Burning far from closest approach wastes almost half the thrust.</p>
@@ -658,7 +667,7 @@ VIEW.moi=()=>{
     requestAnimationFrame(fr);})(last);
 };
 async function finishMoi(v,drop,tol){
-  const f=S.fl;let kind,title,msg;
+  const f=S.fl;const spent=(S.moiProp??S.prop)-S.prop;let kind,title,msg;
   if(v>f.vesc){kind='fail';title='Flyby';msg=`At ${f2(v)} km/s the spacecraft was still above escape speed. Mars bent its path and let it go. It is now in orbit around the Sun.`;}
   else if(f.orbit==='direct'&&v<f.vc-.12){kind='fail';title='Atmospheric entry';msg='The burn ran long. The orbit’s low point dropped into the atmosphere and the spacecraft broke up.';}
   else if(v>f.vt+tol){kind='loose';title='Captured, but high';msg=`You are in orbit, though the burn fell short of the target. ${f.orbit==='aero'?'Aerobraking will take longer and cost another observation pass.':'The orbit is wider than planned, which lowers data quality.'}`;}
@@ -671,7 +680,7 @@ async function finishMoi(v,drop,tol){
     if(r==='retry'){const n=S.retries+1,ck=S.ckpt;S=JSON.parse(ck);S.ckpt=ck;S.retries=n;return go('moi');}
     S.fail.push(title==='Flyby'?'Failed to enter Mars orbit':'Spacecraft lost during orbit insertion');lg('Orbit insertion failed: '+title.toLowerCase()+'.');return go('debrief');
   }
-  S.orbitOK=true;pt('Orbit insertion',kind==='ok'?10:5,10);
+  S.orbitOK=true;pt('Orbit insertion',kind==='ok'?10:5,10,title+'. '+msg);
   let passes=ORB[f.orbit].passes,q=ORB[f.orbit].q;
   if(kind==='loose'){if(f.orbit==='aero')passes--;else q*=.85;}
   const need=massFor(60);let trim='';
@@ -681,7 +690,7 @@ async function finishMoi(v,drop,tol){
   S.ops={pass:1,N:Math.max(3,passes),q,region:'jezero',on:Object.fromEntries(f.on.map(k=>[k,true])),st:Object.fromEntries(f.on.map(k=>[k,'ok'])),
     bat:f.wh,store:[],sci:{},cnt:{},collected:0,delivered:0,lost:0,mode:'fifo',ev:{},lines:[],bonus:0};
   if(f.orbit==='aero')await Cine.play('aerobrake',{lines:[{text:'For four months the spacecraft skims the top of the atmosphere on every orbit.'},{who:'park',text:'Free braking. The air does the work, and the arrays take the heat.'},{text:'Each pass shaves the orbit lower, until it is close enough for science.'}]});
-  await tell('Orbit insertion',title,`<p>${msg}${trim}</p>`,'Continue');
+  await tell('Orbit insertion',title,`<p>${msg}${trim}</p>${moiExplain(f,v,spent,kind)}`,'Continue');
   if(S.quiz.capture===undefined)await quiz('capture','Why did the spacecraft have to fire its engine when it reached Mars?',['To speed up and catch Mars','To slow below escape speed, so that Mars’s gravity could hold it','To steer toward a landing site'],1,'It arrived faster than Mars’s escape speed. Without braking, gravity would only bend its path and let it leave again.');
   go('ops');
 }
@@ -696,7 +705,7 @@ VIEW.ops=()=>{
   const f=S.fl,o=S.ops,avail=f.genM*S.degr,act=f.on.filter(k=>o.on[k]&&o.st[k]!=='off');
   const load=f.bus+act.reduce((s,k)=>s+INST[k].power,0),deficit=load-avail,canPower=deficit<=0||o.bat>=deficit;
   const dataNow=act.reduce((s,k)=>s+INST[k].data,0),u=used(),R=REG[o.region];
-  main.innerHTML=head(7,'Science operations','Mars orbit',`You have ${o.N} passes over Mars. On each one, choose a region and switch instruments on. Repeat looks at the same target are worth less each time.`)+(o.pass===1?say('lind','Three questions and a handful of passes. Kestrel’s echo came from under the north polar cap. I am not telling you where to point. I am only mentioning it.'):'')+qTrack()+`
+  main.innerHTML=head(7,'Science operations','Mars orbit',`You have ${o.N} passes over Mars. On each one, choose a region and switch instruments on. Repeat looks at the same target are worth less each time.`)+(o.pass===1?say('lind','Three questions and a handful of passes. Kestrel’s echo came from under the north polar cap. I am not telling you where to point. I am only mentioning it.'):'')+qTrack()+guide('ops',o.pass===1)+`
   <section class="split"><div class="grid"><div class="panel"><div class="cvwrap"><canvas id="map"></canvas>
       ${Object.keys(REG).map(k=>`<button class="hot" data-r="${k}" aria-pressed="${o.region===k}" style="left:${(REG[k].lon+180)/3.6}%;top:${(90-REG[k].lat)/1.8+(k==='polar'?5:0)}%">${REG[k].n}</button>`).join('')}</div>
       <h3>${R.n}</h3><p>${R.d} <span class="dim">Look for: ${R.look}</span></p>
@@ -715,12 +724,12 @@ VIEW.ops=()=>{
   main.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{o.on[b.dataset.k]=!o.on[b.dataset.k];VIEW.ops();});
   $('exec').onclick=async()=>{const my=RUN;
     if(deficit>0)o.bat-=deficit;else o.bat=Math.min(f.wh,o.bat-deficit*.6);
-    let got=0,lost=0,space=f.store-used();
-    for(const k of act){const val=obsValue(o.region,k),size=INST[k].data;
+    let got=0,lost=0,space=f.store-used();const det=[];
+    for(const k of act){const val=obsValue(o.region,k),size=INST[k].data,nn=o.cnt[o.region+k]||0;det.push(`${INST[k].name} ${f1(val)} (fit ${f0(R.aff[k]*100)}%, look ${nn+1}, ×${DIM[Math.min(nn,DIM.length-1)]})`);
       if(size<=space+1e-9){o.store.push({r:o.region,k,size,left:size,val});space-=size;o.collected+=val;got+=val;o.cnt[o.region+k]=(o.cnt[o.region+k]||0)+1;}
       else{lost+=val;o.lost+=val;}}
     const b4=answered(),sent=downlink(f.down),af=answered();
-    o.lines.push(`Pass ${o.pass}, ${R.n}: recorded ${f1(got)} science${lost?`, lost ${f1(lost)} to full storage`:''}, sent ${f1(sent)} Gb.`);
+    o.lines.push(`Pass ${o.pass}, ${R.n}: recorded ${f1(got)} science${lost?`, lost ${f1(lost)} to full storage`:''}, sent ${f1(sent)} Gb.${det.length?` <span class="dim">Per instrument: ${det.join('; ')}.</span>`:''}`);
     o.pass++;S.health-=.3;
     await story(b4,af);if(my!==RUN)return;
     if(o.pass===4&&!o.ev.data){o.ev.data=1;await evData();}
@@ -731,7 +740,7 @@ VIEW.ops=()=>{
     if(S.dead)return go('debrief');
     if(o.pass>o.N){const b=used(),s=downlink(f.down*3),left=used();
       lg(`Science phase complete after ${o.N} passes.`);
-      await tell('Stage 8 · final transmission','Sending it all home',`<p>The spacecraft turns its dish to Earth for an extended downlink. ${b<.01?'Storage was already empty.':`${f1(s)} Gb of the ${f1(b)} Gb backlog was transmitted.`}${left>.01?` ${f1(left)} Gb never left the spacecraft.`:''}</p>`,'Continue');
+      await tell('Stage 8 · final transmission','Sending it all home',`<p>The spacecraft turns its dish to Earth for an extended downlink. ${b<.01?'Storage was already empty.':`${f1(s)} Gb of the ${f1(b)} Gb backlog was transmitted.`}${left>.01?` ${f1(left)} Gb never left the spacecraft.`:''}</p><p class="dim">Only data that reaches Earth counts toward your questions and your score.</p>`,'Continue');
       await finale();if(my!==RUN)return;return go('debrief');}
     chrome();VIEW.ops();};
 };
@@ -745,8 +754,11 @@ async function evData(){
   if(r==='pri'){o.mode='value';const s=o.store.slice().sort((a,b)=>a.val/a.size-b.val/b.size),n=Math.floor(s.length/4);s.slice(0,n).forEach(x=>{o.store.splice(o.store.indexOf(x),1);o.lost+=x.val;});got=pct>.3?10:7;msg=`Downlink now sends the best data first. ${n} low-value product${n===1?' was':'s were'} deleted.`;}
   else if(r==='zip'){o.store.forEach(x=>{x.left*=.5;x.val*=.85;});got=pct>.6?10:pct>.3?8:5;msg='Stored data was compressed. It will transmit twice as fast, at some cost in detail.';}
   else{got=pct<.35?10:pct<.7?5:2;msg=pct<.35?'There was room to spare, so keeping everything was the right call.':'Storage is still nearly full. New observations may not fit.';}
-  pt('Data overload',got,10);lg('Data overload: '+msg);o.lines.push(msg);
-  await tell('Outcome','Data policy set',`<p>${msg}</p>${teach('Data rates and bandwidth, scientific prioritisation.')}`);
+  pt('Data overload',got,10,msg);lg('Data overload: '+msg);o.lines.push(msg);
+  const why={pri:'Prioritising sends the highest value-per-gigabyte data first and discards the lowest-value quarter of what is stored. It scores best when data really is backing up.',
+    zip:'Compression halves the size of everything stored, so it downlinks twice as fast, but every product loses 15% of its value. It suits a large backlog.',
+    keep:`Keeping everything works only if the downlink can catch up. Storage was ${f0(pct*100)}% full when you chose.`}[r];
+  await tell('Outcome','Data policy set',`<p>${msg}</p>${explain([why])}${teach('Data rates and bandwidth, scientific prioritisation.')}`);
 }
 async function evOpp(){
   const f=S.fl,o=S.ops,space=f.store-used(),up=k=>!!o.st[k]&&o.st[k]!=='off',img=up('cam')||up('spec'),big=o.bat>=150&&space>=6&&img,small=o.bat>=20&&space>=1&&up('mcs');
@@ -760,8 +772,11 @@ async function evOpp(){
   else if(r==='small'){if(small){o.bat-=20;const val=7*o.q*S.calib;o.store.push({r:'valles',k:'mcs',size:1,left:1,val});o.collected+=val;got=big?8:10;msg='Temperature and dust profiles through a growing storm, for very little cost.';}
     else{got=3;msg='The sounder could not run. Nothing gained, nothing lost.';}}
   else{got=big||small?4:9;msg=big||small?'The storm passed unobserved. You had the resources to take it.':'You did not have the margin for it. Holding back protected the mission.';}
-  pt('Observation opportunity',got,10);lg('Observation opportunity: '+msg);o.lines.push(msg);
-  await tell('Outcome',got>=8?'Opportunity taken':'Opportunity passed',`<p>${msg}</p>${teach('Orbital coverage. A spacecraft only sees what is under its track, so chances like this do not repeat.')}`);
+  pt('Observation opportunity',got,10,msg);lg('Observation opportunity: '+msg);o.lines.push(msg);
+  const why={big:big?'The big image costs 150 Wh and 6 Gb. You had the battery and the storage, so the observation succeeded and its data was stored.':'The big image needs 150 Wh and 6 Gb. You did not have both, so the spacecraft went into safe mode and the images were lost.',
+    small:small?'The profiler is cheap at 20 Wh and 1 Gb, so it caught the storm for very little.':'The profiler needs 20 Wh and 1 Gb free, and it was not available.',
+    skip:big||small?'You had the resources to take it, so passing it by wasted a chance that does not repeat.':'You did not have the margin. Skipping protected your power and storage for later passes.'}[r];
+  await tell('Outcome',got>=8?'Opportunity taken':'Opportunity passed',`<p>${msg}</p>${explain([why])}${teach('Orbital coverage. A spacecraft only sees what is under its track, so chances like this do not repeat.')}`);
 }
 async function evMal(){
   const f=S.fl,o=S.ops,live=f.on.filter(k=>o.st[k]==='ok');if(!live.length)return;
@@ -774,8 +789,11 @@ async function evMal(){
   if(r==='rec'){if(Math.random()<p){got=10;msg='The reload worked. The instrument is back to full performance.';}else{o.st[k]='deg';got=6;msg='The reload did not clear the fault. The instrument works at half capability.';}}
   else if(r==='off'){o.st[k]='off';o.on[k]=false;got=3;S.health-=2;msg='The instrument is powered down for good.';}
   else{o.st[k]='deg';got=5;S.health-=3;msg='The instrument keeps running, with noisy data.';}
-  pt('Equipment malfunction',got,10);lg(`Equipment malfunction (${INST[k].name.toLowerCase()}): `+msg);o.lines.push(msg);
-  await tell('Outcome','Fault handled',`<p>${msg}</p>${teach('Instrument calibration and limitations, fault management.')}`);
+  pt('Equipment malfunction',got,10,msg);lg(`Equipment malfunction (${INST[k].name.toLowerCase()}): `+msg);o.lines.push(msg);
+  const why={rec:`Recovery succeeds with probability ${f0(p*100)}%: 50% as a base, plus 15% for each level of computer autonomy and 20% with redundancy. A failed recovery leaves the instrument at half capability.`,
+    off:'Shutting it down removes any risk of further damage, but you lose the instrument for the rest of the mission and spacecraft health drops 2 points.',
+    deg:'Keeping it running gives half the science value from now on, from noisy data, and costs 3 health points.'}[r];
+  await tell('Outcome','Fault handled',`<p>${msg}</p>${explain([why])}${teach('Instrument calibration and limitations, fault management.')}`);
 }
 
 /* ---------- debrief ---------- */
@@ -815,9 +833,10 @@ VIEW.debrief=()=>{
     ${S.fail.length?`<div><p class="kicker" style="color:var(--bad)">Hard failures, reported separately from the score</p><ul class="plain">${S.fail.map(x=>`<li><span class="pill nogo">Failure</span> ${x}</li>`).join('')}</ul></div>`:'<p class="dim">No hard failures.</p>'}
     <p class="mono" style="color:var(--amber)">AURA ${f0(S.aura)}</p></div></div></section>
   ${epi}
+  ${guide('debrief')}
   <section class="grid g2"><div class="panel"><p class="kicker">Score breakdown</p>${cats.map(c=>`<div class="cat"><span><b>${c[0]}</b> ${c[1]} <span class="dim">· ${c[2]}%</span></span><span class="num">${f0(c[3])}</span><div class="b"><i style="width:${c[3]}%"></i></div><span class="dim" style="font-size:.8rem;grid-column:1/-1">${c[4]}</span></div>`).join('')}</div>
     <div class="panel"><p class="kicker">Primary objectives</p>${sc.obj.map(x=>`<div class="chk"><span class="pill ${x[1]?'go':'nogo'}">${x[1]?'Done':'Missed'}</span><div>${x[0]} <span class="dim num">· ${x[2]} pts</span></div></div>`).join('')}
-      <p class="kicker" style="margin-top:8px">Decisions under pressure</p><div class="tw"><table>${S.P.map(p=>`<tr><td>${p.name}</td><td class="num">${p.got} / ${p.max}</td></tr>`).join('')||'<tr><td class="dim">None recorded</td></tr>'}</table></div><p class="dim">Quick checks answered correctly: ${Object.values(S.quiz).filter(Boolean).length} of ${Object.keys(S.quiz).length}</p></div></section>
+      <p class="kicker" style="margin-top:8px">Decisions under pressure</p><div class="tw"><table>${S.P.map(p=>`<tr><td>${p.name}${p.note?`<div class="dim" style="font-size:.8rem">${p.note}</div>`:''}</td><td class="num">${p.got} / ${p.max}</td></tr>`).join('')||'<tr><td class="dim">None recorded</td></tr>'}</table></div><p class="dim">Quick checks answered correctly: ${Object.values(S.quiz).filter(Boolean).length} of ${Object.keys(S.quiz).length}</p></div></section>
   <div><p class="kicker">Science results against NASA reference data</p><p class="dim" style="max-width:66ch">Curves marked as yours are generated by the game from what you observed. Reference curves and facts describe real findings from Mars Reconnaissance Orbiter and Mars Odyssey.</p></div>
   <section class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr))">
     ${cmp('Question 1 · surface minerals','spec','jezero',`Your spectrometer returned ${f1(sc.sci('jezero','spec')+sc.sci('valles','spec')+sc.sci('polar','spec'))} science units. Dips near 1.9, 2.3 and 2.5 µm stand out over Jezero’s delta.`,

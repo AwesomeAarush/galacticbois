@@ -28,6 +28,7 @@ leave the build command empty, and deploy.
 | `index.html` | Page shell. Loads fonts, three.js (from cdnjs) and the two scripts. |
 | `style.css` | All styling. Colours and fonts are variables at the top. |
 | `js/game.js` | Game data, physics, the eight stages, events, scoring. |
+| `js/guide.js` | Step guides, system and check explanations, and the "why this happened" text after events. |
 | `js/cutscenes.js` | 3D cutscene engine. `Cine.play(sceneId, options)`. |
 | `vercel.json` | Vercel settings (clean URLs only). |
 
@@ -37,6 +38,7 @@ leave the build command empty, and deploy.
 - Random event odds: `rollRandom` and `boltP` in `js/game.js`.
 - Story lines and characters: `WHO`, `say(...)` calls and the `lines` arrays passed to `Cine.play`.
 - Glossary: `TERMS` in `js/game.js`.
+- Step guides: `guideData()` in `js/guide.js`. Per-system text is in `SYSX`, review checks in `CHECK_WHY`, instruments in `INSTX`. Guides open by default in Guided mode and stay collapsed otherwise. If you rebalance numbers in `game.js`, update the matching sentences in `guide.js`.
 - A new cutscene: add a function to `SC` in `js/cutscenes.js`. It receives progress `u` (0 to 1) and time `s` (seconds).
 - Scoring: `score()` in `js/game.js`.
 
