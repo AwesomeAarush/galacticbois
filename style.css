@@ -190,3 +190,7 @@ footer button{background:none;border:0;color:var(--dim);text-decoration:underlin
 .cap .who{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin-bottom:2px}
 .cine .skip{bottom:12px;z-index:5}
 
+
+/* live 3D views */
+.i3{width:100%;display:block;pointer-events:none;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.hint3{position:absolute;right:8px;bottom:6px;font:400 .66rem/1 "Martian Mono",monospace;color:var(--dim,#a39686);letter-spacing:.04em;text-transform:uppercase;pointer-events:none}

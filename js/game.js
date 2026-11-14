@@ -218,6 +218,10 @@ function drawSys(c,d0,tr,t){
     ctx.strokeStyle='rgba(239,230,217,.4)';ctx.beginPath();ctx.arc(x,y,9,0,7);ctx.stroke();
   }
 }
+/* Everything the 3D spacecraft model needs to match the player's design. */
+function craftOpts(){const on=S.fl?S.fl.on:IK.filter(k=>S.inst[k]);return {wing:S.sel.power,dish:S.sel.comms,structure:S.sel.structure,engine:S.sel.engine,thermal:S.sel.thermal,battery:S.sel.battery,red:S.red,prop:S.prop,inst:on};}
+/* Put a live 3D view in a canvas. Falls back to the 2D drawing when WebGL or three.js is unavailable. */
+function view3(id,kind,o,cfg,fallback){const c=$(id);if(!c)return null;const v=Models.view(c,kind,o,cfg);if(!v&&fallback)fallback(c);return v;}
 function drawCraft(ctx,x,y,s,o={}){
   const wing=[34,50,68][o.wing??1]*s, dish=[9,14,20][o.dish??1]*s, inst=o.inst||IK;
   ctx.save();ctx.translate(x,y);ctx.rotate(o.rot||0);
@@ -234,6 +238,7 @@ function drawCraft(ctx,x,y,s,o={}){
 }
 function drawMarsMap(c,grid=true){
   const {ctx,w,h}=c,R=rng(41),X=lon=>(lon+180)/360*w,Y=lat=>(90-lat)/180*h;
+  if(grid){try{ctx.drawImage(Models.marsCanvas(),0,0,w,h);ctx.strokeStyle='rgba(17,13,11,.3)';ctx.lineWidth=1;ctx.beginPath();for(let lo=-120;lo<180;lo+=60){ctx.moveTo(X(lo),0);ctx.lineTo(X(lo),h);}for(let la=-60;la<90;la+=30){ctx.moveTo(0,Y(la));ctx.lineTo(w,Y(la));}ctx.stroke();return;}catch(e){}}
   const g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#b0613a');g.addColorStop(.5,'#c2703f');g.addColorStop(1,'#99502f');
   ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
   for(let i=0;i<260;i++){ctx.fillStyle=`rgba(${R()<.5?'70,32,18':'226,150,96'},${.04+R()*.08})`;ctx.beginPath();ctx.ellipse(R()*w,R()*h,8+R()*46,5+R()*22,R()*3,0,7);ctx.fill();}
@@ -326,7 +331,7 @@ VIEW.title=()=>{
        ['Mission 4 · Deep space','Beyond the Horizon','Investigate the outer solar system while overcoming extreme distance and limited resources.','Locked']]
       .map(m=>`<div class="mission locked" aria-disabled="true"><p class="kicker">${m[0]}</p><h3>${m[1]}</h3><p>${m[2]}</p><span class="pill warn" style="align-self:flex-start">${m[3]}</span></div>`).join('')}
   </section>`;
-  drawGlobe(cv('globe',340,340));
+  view3('globe','mars',{},{w:1,h:1,spin:.12,yaw:1.2,pitch:.25},c=>drawGlobe(cv(c,340,340)));
   $('m1').onclick=async()=>{
     const nm=($('scName').value||'').replace(/[<>&"'`$\\]/g,'').trim().slice(0,18)||'Wayfarer',gd=$('guided').checked;
     S=fresh();S.name=nm;S.guided=gd;S.dep=bestDep()+12;
@@ -359,13 +364,14 @@ VIEW.science=()=>{
   const d=design();
   main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`
   <section class="grid g2">${IK.map(k=>{const i=INST[k];return `<button class="opt" data-k="${k}" aria-pressed="${S.inst[k]}">
-    <span class="kicker">${i.tag} · ${S.inst[k]?'installed':'left on the ground'}</span><b style="font-family:var(--display);font-size:1.6rem;text-transform:uppercase">${i.name}</b>
+    <canvas class="i3" id="i3${k}" aria-hidden="true"></canvas><span class="kicker">${i.tag} · ${S.inst[k]?'installed':'left on the ground'}</span><b style="font-family:var(--display);font-size:1.6rem;text-transform:uppercase">${i.name}</b>
     <span>${i.desc}</span><span class="s">${i.mass} kg · ${i.cost}M · ${i.power} W · ${i.data} Gb per observation · reliability ${f0(i.rel*100)}%</span>
     <span class="s" style="color:var(--ice)">Returns: ${i.out}</span><span class="s">Teaches: ${i.teach}</span></button>`;}).join('')}</section>
   <section class="panel"><p class="kicker">Payload totals</p><div class="grid g3">
     ${meter('Payload mass',d.on.reduce((s,k)=>s+INST[k].mass,0),122,'kg','ok')}${meter('Payload cost',d.on.reduce((s,k)=>s+INST[k].cost,0),74,'M','ok')}${meter('Payload power',d.instP,136,'W','ok')}</div>
     <p class="dim">These instruments are modelled on real ones aboard NASA’s Mars Reconnaissance Orbiter. The numbers here are tuned for the game.</p></section>
   ${navRow(true,'planning','Plan the journey',!d.on.length,d.on.length?'':'Install at least one instrument')}`;
+  IK.forEach((k,i)=>{const v=view3('i3'+k,'inst',{k},{w:16,h:7,spin:.35,yaw:i*1.3,pitch:.3,drag:false});if(!v)$('i3'+k).remove();});
   main.querySelectorAll('.opt').forEach(b=>b.onclick=()=>{S.inst[b.dataset.k]=!S.inst[b.dataset.k];chrome();VIEW.science();});
   bindNav('briefing','planning');
 };
@@ -420,8 +426,11 @@ VIEW.design=()=>{
   </div><div class="panel sticky" id="readout"></div></section>
   ${teach('Spacecraft subsystems, power budgets, mass budgets, propellant management, redundancy, engineering trade-offs.')}
   ${navRow(true,'review','Send to review')}`;
+  $('readout').innerHTML=`<p class="kicker">Your spacecraft · live 3D model</p><div class="cvwrap"><canvas id="craft"></canvas><span class="hint3">Drag to turn it</span></div>
+    <p class="dim" style="font-size:.82rem">The model changes as you build: panels, dish, tanks, engine and each instrument (coloured rings).</p><div id="rbody" class="grid" style="gap:12px"></div>`;
+  const cview=view3('craft','craft',craftOpts(),{w:3,h:2,spin:.3,yaw:.7,pitch:.38});
   const upd=()=>{const d=design(),p=plan(),bad=checks().filter(x=>x.crit&&!x.ok);$('propLab').textContent=`${S.prop} kg · ${f1(S.prop*.02)}M`;
-    $('readout').innerHTML=`<p class="kicker">Live budgets</p><div class="cvwrap"><canvas id="craft"></canvas></div>
+    $('rbody').innerHTML=`
       ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Not ready for review</p><ul class="plain">${bad.map(x=>`<li><b>${x.name}.</b> ${x.fix}</li>`).join('')}</ul></div>`:'<div class="issues ok"><p class="kicker" style="color:var(--good)">Ready for review</p><p>Every critical check passes.</p></div>'}
       ${meter('Launch mass',d.wet,MASS_CAP,'kg')}${meter('Cost',d.cost,BUDGET,'M')}
       ${meter('Power, all instruments on',d.bus+d.instP,d.genM,'W')}
@@ -430,7 +439,7 @@ VIEW.design=()=>{
       <div class="tw"><table><tr><th>Dry mass</th><td class="num">${f0(d.dry)} kg</td></tr><tr><th>Power at Earth / Mars</th><td class="num">${f0(d.genE)} / ${f0(d.genM)} W</td></tr>
       <tr><th>Spacecraft systems draw</th><td class="num">${f0(d.bus)} W</td></tr><tr><th>Battery</th><td class="num">${d.wh} Wh</td></tr>
       <tr><th>Downlink</th><td class="num">${d.down} Gb per pass</td></tr><tr><th>Estimated reliability</th><td class="num">${f1(d.rel*100)}%</td></tr></table></div>`;
-    const c=cv('craft',300,150);drawCraft(c.ctx,150,82,1.5,{wing:S.sel.power,dish:S.sel.comms,inst:d.on});chrome();};
+    if(cview)cview.set(craftOpts());else{const c=cv('craft',300,200);c.ctx.clearRect(0,0,300,200);drawCraft(c.ctx,150,105,1.5,{wing:S.sel.power,dish:S.sel.comms,inst:d.on});}chrome();};
   main.querySelectorAll('[data-sys]').forEach(b=>b.onclick=()=>{S.sel[b.dataset.sys]=+b.dataset.i;main.querySelectorAll(`[data-sys="${b.dataset.sys}"]`).forEach(x=>x.setAttribute('aria-pressed',x===b));upd();});
   main.querySelectorAll('[data-inst]').forEach(b=>b.onclick=()=>{const k=b.dataset.inst;S.inst[k]=!S.inst[k];b.setAttribute('aria-pressed',S.inst[k]);upd();});
   main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.inst={...p.inst};S.prop=p.prop;S.red=p.red;VIEW.design();});
@@ -445,9 +454,11 @@ VIEW.review=()=>{
   main.innerHTML=head(5,'Technical review','Launch Readiness Board',fails?`The board found ${fails} critical problem${fails>1?'s':''}. Each one comes with a suggested fix.`:'Every critical check passes. Cautions will not stop the launch, but they show where the mission is likely to hurt.')+say('reyes',fails?'No-go items are not opinions. Fix them and come back.':`The board has no objections, and neither do I. Take ${S.name} to the pad.`)+`
   <section class="grid g2"><div class="panel"><p class="kicker">Critical checks</p>${crit.map(row).join('')}</div>
   <div class="panel"><p class="kicker">Cautions</p>${c.filter(x=>!x.crit).map(row).join('')}
+    <div class="grid g2" id="pad3"><div><p class="kicker">${S.name}</p><div class="cvwrap"><canvas id="rvCraft"></canvas></div></div><div><p class="kicker">Launch vehicle</p><div class="cvwrap"><canvas id="rvRocket"></canvas></div></div></div>
     ${teach('Engineering requirements, margins and redundancy. Real missions hold reviews like this at every design stage.')}
     <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button></div></div></section>
   ${navRow(true,'cruise','Launch',fails>0,fails?'Launch is blocked':'')}`;
+  if(!view3('rvCraft','craft',craftOpts(),{w:1,h:1,spin:.3,pitch:.38})|!view3('rvRocket','rocket',{},{w:1,h:1,spin:.4,pitch:.12}))$('pad3').remove();
   $('toPlan').onclick=()=>go('planning');$('toDesign').onclick=()=>go('design');
   $('back').onclick=()=>go('design');$('next').onclick=launch;
 };
@@ -456,7 +467,7 @@ async function launch(){
   const d=design(),p=plan();
   S.fl={dep:S.dep,tr:p.tr,vh:p.vh,vt:p.vt,vc:p.vc,vesc:p.vesc,pen:p.pen,need:p.need,light:p.light,orbit:S.orbit,prop0:S.prop,wet0:d.wet,cost:d.cost,
     isp:tier('engine').isp,auto:tier('computer').auto,genM:d.genM,bus:d.bus,store:d.store,down:d.down,wh:d.wh,rel:d.rel,on:d.on};
-  S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?.92:1;
+  S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?0.92:1;
   S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{}};
   lg(`Launched ${dateStr(S.dep)} on a ${TR[S.transfer].n}, ${f0(d.wet)} kg, ${f1(d.cost)}M.`);
   const my=++RUN;
@@ -474,7 +485,8 @@ VIEW.cruise=()=>{
   const f=S.fl;
   main.innerHTML=head(6,'Interplanetary cruise','Spacecraft Operations Center',`${S.name} flies itself most of the way. Each tick of the clock is one week. You watch its health and step in when something goes wrong.`)+coach(['Watch the map and the telemetry. There is nothing to press until an alert appears.','When an alert appears, read it and choose. There is no timer unless it says so.','One major problem always strikes mid-cruise. Be ready to correct your course.'])+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div><div id="prog"></div></div>
-  <div class="grid"><div class="panel" id="tele"></div><div class="panel"><p class="kicker">Flight log</p><div class="log" id="clog"></div></div></div></section>`;
+  <div class="grid"><div class="panel" id="livep"><p class="kicker">${S.name} · live view</p><div class="cvwrap"><canvas id="live"></canvas></div></div><div class="panel" id="tele"></div><div class="panel"><p class="kicker">Flight log</p><div class="log" id="clog"></div></div></div></section>`;
+  if(!view3('live','craft',craftOpts(),{w:16,h:9,spin:.18,yaw:2.4,pitch:.3}))$('livep').remove();
   const c=cv('sys',460,460);
   const upd=()=>{const t=S.cr.tick*7,s=posAt(f.tr,Math.min(t,f.tr.T));
     drawSys(c,f.dep,f.tr,t);
@@ -621,7 +633,7 @@ VIEW.moi=()=>{
     ${teach('Gravitational capture, orbital insertion, velocity changes, propulsion and delta-v.')}</div></section>`;
   const c=cv('moiC',520,340);
   let p=0,v=f.vh,firing=false,last=performance.now(),started=false;
-  const DUR=S.guided?18:14,rate=(f.vh-f.vt)/4.5,drop=f.vh-f.vt,tol=(S.guided?.09:.04)*drop,cx=300,cy=185,rp=74,e=1.6;
+  const DUR=S.guided?18:14,rate=(f.vh-f.vt)/4.5,drop=f.vh-f.vt,tol=(S.guided?0.09:0.04)*drop,cx=300,cy=185,rp=74,e=1.6;
   const pos=th=>{const r=rp*(1+e)/(1+e*Math.cos(th));return [cx+r*Math.sin(th),cy-r*Math.cos(th)];};
   const fb=$('fire');const begin=()=>{started=true;last=performance.now();fb.textContent='Hold to fire engine';};
   const on=b=>{if(!started){if(b)begin();return;}firing=b;};
@@ -688,7 +700,7 @@ async function finishMoi(v,drop,tol){
 
 /* ---------- science operations ---------- */
 const used=()=>S.ops.store.reduce((s,i)=>s+i.left,0);
-function obsValue(r,k){const o=S.ops,n=(o.cnt[r+k]||0);return 10*REG[r].aff[k]*DIM[Math.min(n,DIM.length-1)]*o.q*S.calib*(o.st[k]==='deg'?.5:1);}
+function obsValue(r,k){const o=S.ops,n=(o.cnt[r+k]||0);return 10*REG[r].aff[k]*DIM[Math.min(n,DIM.length-1)]*o.q*S.calib*(o.st[k]==='deg'?0.5:1);}
 function downlink(cap){const o=S.ops;if(o.mode==='value')o.store.sort((a,b)=>b.val/b.size-a.val/a.size);let sent=0;
   while(cap>1e-9&&o.store.length){const it=o.store[0],t=Math.min(cap,it.left);it.left-=t;cap-=t;sent+=t;
     if(it.left<=1e-9){o.store.shift();o.delivered+=it.val;const key=it.r+it.k;o.sci[key]=(o.sci[key]||0)+it.val;}}return sent;}
@@ -765,7 +777,7 @@ async function evOpp(){
 }
 async function evMal(){
   const f=S.fl,o=S.ops,live=f.on.filter(k=>o.st[k]==='ok');if(!live.length)return;
-  const k=live[Math.random()*live.length|0],p=clamp(.5+.15*f.auto+(S.red?.2:0),0,.95);
+  const k=live[Math.random()*live.length|0],p=clamp(.5+.15*f.auto+(S.red?0.2:0),0,.95);
   const r=await ask({kicker:'Event · equipment malfunction',cls:'alert',title:`${INST[k].name} fault`,body:`<p>The ${INST[k].name.toLowerCase()} is returning corrupted frames. Engineers suspect its detector electronics.</p>`,choices:[
     {label:'Attempt recovery',sub:`Power-cycle and reload its software. ${f0(p*100)}% chance of full recovery, based on your computer and redundancy.`,value:'rec'},
     {label:'Shut it down',sub:'No further risk. The instrument is lost for the rest of the mission.',value:'off'},
@@ -857,12 +869,12 @@ VIEW.debrief=()=>{
     const X=t=>40+(t-130)/120*(w-55),Y=z=>h-28-z/80*(h-45);
     ctx.lineWidth=1.6;ctx.strokeStyle='#8fc8da';ctx.beginPath();for(let z=0;z<=80;z+=2){z?ctx.lineTo(X(T(z,0)),Y(z)):ctx.moveTo(X(T(z,0)),Y(z));}ctx.stroke();
     ctx.setLineDash([4,3]);ctx.beginPath();for(let z=0;z<=80;z+=2){z?ctx.lineTo(X(T(z,1)),Y(z)):ctx.moveTo(X(T(z,1)),Y(z));}ctx.stroke();ctx.setLineDash([]);
-    if(sc.any('mcs')){ctx.fillStyle='#ea6f3c';const d=sc.sci('valles','mcs')>0?.7:.1;for(let z=4;z<=78;z+=6){ctx.beginPath();ctx.arc(X(T(z,d)+(R()-.5)*7),Y(z),2.4,0,7);ctx.fill();}}
+    if(sc.any('mcs')){ctx.fillStyle='#ea6f3c';const d=sc.sci('valles','mcs')>0?0.7:0.1;for(let z=4;z<=78;z+=6){ctx.beginPath();ctx.arc(X(T(z,d)+(R()-.5)*7),Y(z),2.4,0,7);ctx.fill();}}
     legend(ctx,w-205,22,'reference: clear, dashed: dusty',sc.any('mcs')?'your simulated profile':'no profile returned');}
   {const c=cv('cRad',420,210),{ctx,w,h}=c;ctx.fillStyle='#0b0807';ctx.fillRect(0,0,w,h);
     const has=sc.sci('polar','radar')>0,surf=x=>38+Math.sin(x/60)*6+Math.sin(x/17)*2,base=x=>168+Math.sin(x/90)*8;
     for(let x=0;x<w;x+=2)for(let y=30;y<h-10;y+=2){const s=surf(x),b=base(x);let v=R()*.12;
-      if(Math.abs(y-s)<2)v+=.9;else if(y>s&&y<b){const l=Math.sin((y-s)/((b-s)/11)*Math.PI);v+=Math.max(0,l)**6*(has?.6:.25);}if(Math.abs(y-b)<2)v+=has?.7:.3;
+      if(Math.abs(y-s)<2)v+=.9;else if(y>s&&y<b){const l=Math.sin((y-s)/((b-s)/11)*Math.PI);v+=Math.max(0,l)**6*(has?0.6:0.25);}if(Math.abs(y-b)<2)v+=has?0.7:0.3;
       ctx.fillStyle=`rgba(143,200,218,${Math.min(1,v)})`;ctx.fillRect(x,y,2,2);}
     ctx.fillStyle='#efe6d9';ctx.font='10px "Martian Mono",monospace';ctx.fillText('surface',8,24);ctx.fillText('ice and dust layers',8,104);ctx.fillText('base of the ice, about 2 km down',8,h-14);
     ctx.fillStyle='#a39686';ctx.textAlign='right';ctx.fillText(has?'simulated radargram, north polar cap':'reference only: no polar radar returned',w-8,24);ctx.textAlign='left';}

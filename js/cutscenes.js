@@ -1,67 +1,26 @@
 "use strict";
-/* 3D cutscene engine (three.js r128, loaded from a CDN in index.html).
+/* 3D cutscene engine (three.js r128, loaded from a CDN in index.html). The models come from js/models.js.
    Cine.play(sceneId, options) returns a Promise that resolves when the scene ends or is skipped.
    If three.js or WebGL is unavailable, a simple 2D version plays instead, so the game never blocks. */
 const Cine=(()=>{
-  let ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex,ptex;
+  let ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex;
   const NP=420;
 
-  function glowTex(){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d'),g=x.createRadialGradient(64,64,0,64,64,64);
-    g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.55)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,128,128);return new T3.CanvasTexture(c);}
-  function marsTex(){const c=document.createElement('canvas');c.width=1280;c.height=640;const x=c.getContext('2d');x.scale(2,2);drawMarsMap({ctx:x,w:640,h:320},false);return new T3.CanvasTexture(c);}
-  function earthTex(){const c=document.createElement('canvas');c.width=1024;c.height=512;const x=c.getContext('2d'),r=rng(11);
-    x.fillStyle='#17486f';x.fillRect(0,0,1024,512);
-    for(let i=0;i<16;i++){const cx=r()*1024,cy=90+r()*330;for(let j=0;j<16;j++){x.fillStyle=`rgb(${60+r()*50|0},${95+r()*45|0},${50+r()*30|0})`;x.beginPath();x.ellipse(cx+(r()-.5)*150,cy+(r()-.5)*90,10+r()*42,8+r()*26,r()*3,0,7);x.fill();}}
-    x.fillStyle='#f3f1ec';x.fillRect(0,0,1024,26);x.fillRect(0,482,1024,30);
-    for(let i=0;i<110;i++){x.fillStyle=`rgba(255,255,255,${.12+r()*.2})`;x.beginPath();x.ellipse(r()*1024,r()*512,20+r()*70,3+r()*9,(r()-.5)*.5,0,7);x.fill();}
-    return new T3.CanvasTexture(c);}
-  function panelTex(){const c=document.createElement('canvas');c.width=256;c.height=64;const x=c.getContext('2d');x.fillStyle='#16344a';x.fillRect(0,0,256,64);
-    x.strokeStyle='rgba(143,200,218,.7)';x.lineWidth=1.5;for(let i=0;i<=256;i+=16){x.beginPath();x.moveTo(i,0);x.lineTo(i,64);x.stroke();}for(let j=0;j<=64;j+=16){x.beginPath();x.moveTo(0,j);x.lineTo(256,j);x.stroke();}
-    return new T3.CanvasTexture(c);}
-  function planet(tex,atm){const g=new T3.Group();
-    g.add(new T3.Mesh(new T3.SphereGeometry(1,72,48),new T3.MeshStandardMaterial({map:tex,roughness:1,metalness:0})));
-    g.add(new T3.Mesh(new T3.SphereGeometry(1.03,48,32),new T3.MeshBasicMaterial({color:atm,transparent:true,opacity:.2,side:T3.BackSide,blending:T3.AdditiveBlending,depthWrite:false})));
-    return g;}
-  function sprite(color,blend=true){return new T3.Sprite(new T3.SpriteMaterial({map:gtex,color,transparent:true,depthWrite:false,blending:blend?T3.AdditiveBlending:T3.NormalBlending}));}
-
-  function buildCraft(o={}){
-    const g=new T3.Group(),grey=o.grey,M=(c,r=.55)=>new T3.MeshStandardMaterial({color:grey?0x6f6a64:c,metalness:.25,roughness:r});
-    g.add(new T3.Mesh(new T3.BoxGeometry(1,1.25,1),M(0xd2a865,.45)));
-    const wl=[1.5,2.2,3][o.wing??1];
-    for(const d of[-1,1]){
-      const w=new T3.Mesh(new T3.BoxGeometry(wl,.03,.8),new T3.MeshStandardMaterial({map:ptex,color:grey?0x555555:0xffffff,metalness:.3,roughness:.35,emissive:grey?0x000000:0x0b2030}));
-      w.position.x=d*(.62+wl/2);g.add(w);
-      const b=new T3.Mesh(new T3.CylinderGeometry(.03,.03,.16,8),M(0xefe6d9));b.rotation.z=Math.PI/2;b.position.x=d*.56;g.add(b);}
-    const dr=[.38,.55,.78][o.dish??1],dh=dr*.42;
-    const dish=new T3.Mesh(new T3.ConeGeometry(dr,dh,36,1,true),new T3.MeshStandardMaterial({color:grey?0x888888:0xf3ece0,side:T3.DoubleSide,roughness:.6}));
-    dish.rotation.x=Math.PI;dish.position.y=.625+.12+dh/2;g.add(dish);
-    const mast=new T3.Mesh(new T3.CylinderGeometry(.03,.03,.14+dh,8),M(0xefe6d9));mast.position.y=.625+(.14+dh)/2;g.add(mast);
-    const cols={cam:0xea6f3c,spec:0xf2b84f,mcs:0x86c994,radar:0x8fc8da};
-    (o.inst||['cam','spec','mcs','radar']).forEach((k,i)=>{const m=new T3.Mesh(new T3.BoxGeometry(.18,k==='cam'?.4:.2,.18),M(cols[k]));m.position.set(-.33+i*.22,-.625-(k==='cam'?.2:.1),.25);g.add(m);});
-    const nz=new T3.Mesh(new T3.ConeGeometry(.22,.38,20,1,true),new T3.MeshStandardMaterial({color:0x4a3d34,side:T3.DoubleSide,roughness:.7}));nz.rotation.x=Math.PI/2;nz.position.z=-.69;g.add(nz);
-    const fl=sprite(0xffb060);fl.position.z=-1.25;fl.scale.set(1.1,1.1,1);fl.visible=false;g.add(fl);g.userData.flame=fl;
-    const lamp=new T3.Mesh(new T3.SphereGeometry(.07,10,8),new T3.MeshBasicMaterial({color:0xff4030}));lamp.position.set(.35,.7,.45);lamp.visible=!!grey;g.add(lamp);g.userData.lamp=lamp;
-    return g;}
-  function buildRocket(){const g=new T3.Group(),W=new T3.MeshStandardMaterial({color:0xf0ece4,roughness:.5}),O=new T3.MeshStandardMaterial({color:0xea6f3c,roughness:.5});
-    const b=new T3.Mesh(new T3.CylinderGeometry(.17,.17,1.7,24),W);b.position.y=.85;g.add(b);
-    const n=new T3.Mesh(new T3.ConeGeometry(.17,.5,24),O);n.position.y=1.95;g.add(n);
-    const band=new T3.Mesh(new T3.CylinderGeometry(.175,.175,.12,24),O);band.position.y=1.2;g.add(band);
-    for(const d of[-1,1]){const s=new T3.Mesh(new T3.CylinderGeometry(.08,.08,.9,16),W);s.position.set(d*.26,.45,0);g.add(s);const c=new T3.Mesh(new T3.ConeGeometry(.08,.22,16),O);c.position.set(d*.26,1.01,0);g.add(c);}
-    const fl=sprite(0xffa040);fl.position.y=-.55;g.add(fl);g.userData.flame=fl;return g;}
+  const sprite=(c,b)=>Models.sprite(c,b);
 
   function init(){
     if(ok!==null)return ok;
     try{
       T3=window.THREE;if(!T3)throw new Error('three.js not loaded');
-      R=new T3.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));R.setClearColor(0x000000);
+      R=new T3.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));R.setClearColor(0x000000);Models.grade(R);
       scene=new T3.Scene();cam=new T3.PerspectiveCamera(42,1,.1,5000);
-      gtex=glowTex();ptex=panelTex();
+      gtex=Models.sprite(0xffffff).material.map;
       const sg=new T3.BufferGeometry(),sp=new Float32Array(2600*3),r=rng(77);
       for(let i=0;i<2600;i++){const a=r()*Math.PI*2,z=r()*2-1,q=Math.sqrt(1-z*z);sp[i*3]=q*Math.cos(a)*1800;sp[i*3+1]=z*1800;sp[i*3+2]=q*Math.sin(a)*1800;}
       sg.setAttribute('position',new T3.BufferAttribute(sp,3));
       stars=new T3.Points(sg,new T3.PointsMaterial({color:0xefe6d9,size:1.7,sizeAttenuation:false}));scene.add(stars);
-      sun=new T3.DirectionalLight(0xfff1dd,1.55);scene.add(sun);scene.add(new T3.AmbientLight(0x5a4a40,.6));
-      mars=planet(marsTex(),0xea6f3c);earth=planet(earthTex(),0x7fb8ff);kestrel=buildCraft({grey:true});rocket=buildRocket();
+      sun=new T3.DirectionalLight(0xfff3e2,2.8);scene.add(sun);scene.add(new T3.AmbientLight(0x6a5a52,.22));scene.environment=Models.envMap();
+      mars=Models.planet('mars');earth=Models.planet('earth');kestrel=Models.craft({grey:true,wing:1,dish:1});rocket=Models.rocket();
       glow=sprite(0xea6f3c);flash=sprite(0xffffff);sunSpr=sprite(0xfff0c8);dot=sprite(0x9fd0ff);
       for(let i=0;i<4;i++){const m=new T3.Mesh(new T3.RingGeometry(.965,1,72),new T3.MeshBasicMaterial({color:0xf2b84f,transparent:true,side:T3.DoubleSide,blending:T3.AdditiveBlending,depthWrite:false}));rings.push(m);}
       const pg=new T3.BufferGeometry();pg.setAttribute('position',new T3.BufferAttribute(new Float32Array(NP*3),3));
@@ -144,7 +103,7 @@ const Cine=(()=>{
     const size=()=>{if(use3){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.fov=innerWidth<innerHeight?62:42;cam.updateProjectionMatrix();}else{c2.width=innerWidth;c2.height=innerHeight;}};
     if(use3){el.prepend(R.domElement);
       if(craft){scene.remove(craft);}
-      craft=buildCraft({wing:S.sel.power,dish:S.sel.comms,inst:S.fl?S.fl.on:Object.keys(S.inst).filter(k=>S.inst[k])});scene.add(craft);
+      craft=Models.craft(craftOpts());scene.add(craft);
       sun.position.set(-6,3,5);stars.rotation.set(0,0,0);craft.scale.setScalar(1);
       if(id==='explosion')seedParts('burst');if(id==='aerobrake')seedParts('stream');
     }else{c2=document.createElement('canvas');el.prepend(c2);ctx2=c2.getContext('2d');}
@@ -161,7 +120,7 @@ const Cine=(()=>{
       if(o.count){const n=Math.ceil((.27-u)/.27*5);big.textContent=n>0?n:'Lift-off';big.classList.toggle('in',u<.5);}
       else if(o.big&&u>(o.bigAt??.12))big.classList.add('in');
       if(o.aura&&u>.5){au.classList.add('in');au.textContent='AURA +'+Math.round(o.aura*Math.min(1,(u-.5)/.3)).toLocaleString('en-US');}
-      if(use3){SC[id](still?.5:u,still?3:s,o,dt);R.render(scene,cam);}else draw2(ctx2,c2.width,c2.height,u,s);
+      if(use3){SC[id](still?.5:u,still?3:s,o,dt);mars.userData.sun.copy(sun.position).normalize();earth.userData.sun.copy(sun.position).normalize();earth.userData.clouds.rotation.y+=dt*.004;R.render(scene,cam);}else draw2(ctx2,c2.width,c2.height,u,s);
       if(s>=total)return end();
       requestAnimationFrame(fr);})(t0);
   });}
