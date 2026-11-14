@@ -80,6 +80,10 @@ const NB=[
  ['briefing','Mars','Radius 3,390 km, about half of Earth. Gravity is 38% of Earth’s. The air is mostly carbon dioxide at under 1% of Earth’s surface pressure.'],
  ['briefing','Water history','Dry river valleys, deltas and water-altered minerals show that liquid water flowed on Mars more than 3 billion years ago.'],
  ['briefing','Past vs present habitability','A place that could once have supported life is not the same as a place that can today. Orbiters look for evidence of the first.'],
+ ['briefing','Mission segments','NASA splits a science mission into four segments: launch (the rocket), space (the spacecraft and its instruments), ground (control centres and antennas) and user (the scientists and public who use the data).'],
+ ['briefing','Concept of operations','A time-ordered story of how the whole system will be used, written before the design. It drives the requirements and is what the finished mission is checked against.'],
+ ['briefing','The design process','Identify the need and goals, define the concept, define requirements, design, build and verify, then implement. This game follows the same six steps.'],
+ ['science','Begin with the end in mind','Start from the data the scientists need at the end, then work backwards to the instruments, power, storage and downlink needed to get it.'],
  ['science','Remote sensing','Measuring something without touching it, by recording light or radio waves that it reflects or emits.'],
  ['science','Absorption spectrum','Minerals absorb specific wavelengths. The pattern of dips in reflected light works like a fingerprint.'],
  ['science','Radar sounding','Radio pulses bounce off boundaries between materials. The echo delay gives the depth of each layer.'],
@@ -90,6 +94,8 @@ const NB=[
  ['design','Rocket equation','Δv = Isp × g₀ × ln(wet mass ÷ dry mass). Each extra kilogram of hardware needs more propellant to move it.'],
  ['design','Power budget','Total generation must cover every system that is switched on, with margin for degradation.'],
  ['design','Redundancy','Carrying a spare of a critical part. It costs mass and money and halves the chance that one failure ends the mission.'],
+ ['planning','GMAT','NASA’s open-source General Mission Analysis Tool. Mission designers use it to compute and optimise real trajectories. You can export this game’s flight plan as a GMAT script from the review board.'],
+ ['review','Requirements and verification','Every requirement is written together with the way it will be checked: by test, analysis, inspection or demonstration. A requirement you cannot verify is only a wish.'],
  ['cruise','Light-time delay','Radio travels at 299,792 km/s. Earth to Mars takes 3 to 22 minutes one way, so joystick control is impossible.'],
  ['cruise','Inverse-square law','Sunlight intensity falls with the square of distance. At 1.52 AU you get 1 ÷ 1.52² = 43% of the power.'],
  ['cruise','Trajectory correction','Small burns during cruise remove aiming errors. The earlier you correct, the less propellant it costs.'],
@@ -153,14 +159,15 @@ function checks(){
   add('Downlink keeps up with data',d.down>=d.dataPass,`${d.dataPass} Gb generated per full pass, ${d.down} Gb transmitted`,false);
   const FIX=['Remove an instrument, pick lighter parts or load less propellant.','Pick cheaper parts or leave an instrument behind.','Go back to the trajectory and move the departure date.',
     'Fit larger solar arrays, or choose systems that draw less power.','Fit a larger battery.','Add propellant, cut mass, or pick a flight plan that needs less speed change.','','Fit a computer with more storage.','Install at least one instrument.'];
-  c.forEach((x,i)=>x.fix=FIX[i]||'');
+  const VER=['test: weigh the assembled spacecraft','inspection: audit of committed costs','analysis: trajectory simulation','analysis: power budget at Mars distance','analysis: eclipse energy budget','analysis: rocket equation against the flight plan','test: end-to-end radio link','analysis: data volume per pass','inspection: instrument fit check','analysis: power budget','analysis: propellant budget','analysis: data budget'];
+  c.forEach((x,i)=>{x.fix=FIX[i]||'';x.ver=VER[i]||'';});
   return c;
 }
 const pt=(name,got,max,note)=>S.P.push({name,got,max,note});
 const lg=text=>S.log.push(text);
 
 /* ============ ui helpers ============ */
-function head(n,title,loc,lede){return `<div class="stagehead"><div class="n" aria-hidden="true">${String(n).padStart(2,'0')}</div><p class="loc">Stage ${n} of 8 · ${loc}</p><h2>${title}</h2></div><p class="lede">${lede}</p>`;}
+function head(n,title,loc,lede){return `<div class="stagehead"><p class="loc"><i class="led"></i>${loc} · stage ${String(n).padStart(2,'0')} / 08</p><h2>${title}</h2></div><p class="lede">${lede}</p>`;}
 function meter(label,val,max,unit,mode){
   const cls=mode||(val>max?'over':val>max*.9?'warn':'');
   return `<div class="meter ${cls}"><div class="t"><span>${label}</span><span class="num">${val%1?f1(val):f0(val)} / ${f0(max)} ${unit}</span></div><div class="b"><i style="width:${clamp(val/max*100,0,100)}%"></i></div></div>`;
@@ -169,7 +176,7 @@ function cv(el,w,h){const c=typeof el==='string'?$(el):el,r=Math.min(2,window.de
 function ask({kicker='',title,body='',choices,cls=''}){return new Promise(res=>{
   const o=document.createElement('div');o.className='overlay';
   o.innerHTML=`<div class="modal ${cls}" role="dialog" aria-modal="true"><p class="kicker">${kicker}</p><h3>${title}</h3><div class="mbody">${body}</div><div class="choices">${choices.map((c,i)=>`<button class="choice" data-i="${i}" ${c.disabled?'disabled':''}><b>${c.label}</b>${c.sub?`<span>${c.sub}</span>`:''}</button>`).join('')}</div></div>`;
-  document.body.appendChild(o);const f=o.querySelector('.choice:not([disabled])');if(f)f.focus();
+  document.body.appendChild(o);if(cls.includes('alert'))SFX.alarm();const f=o.querySelector('.choice:not([disabled])');if(f)f.focus();
   o.addEventListener('click',e=>{const b=e.target.closest('.choice');if(!b||b.disabled)return;o.remove();const c=choices[+b.dataset.i];res(c.value===undefined?+b.dataset.i:c.value);});
 });}
 const tell=(kicker,title,body,label='Continue')=>ask({kicker,title,body,choices:[{label}]});
@@ -185,7 +192,26 @@ function chrome(){
   else if(['cruise','moi','ops'].includes(S.stage))h=`<span class="chip">Health ${f0(S.health)}%</span><span class="chip">Propellant ${f0(S.prop)} kg</span><span class="chip">Aura ${f0(S.aura)}</span>`;
   $('hstats').innerHTML=h;
 }
-function go(stage){RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);VIEW[stage]();}
+const LOC={briefing:['Mission briefing','ASEA Mission Control'],science:['Scientific preparation','Science Operations Center'],planning:['Interplanetary planning','Mission Planning Center'],design:['Spacecraft construction','Spacecraft Design Facility'],
+  review:['Technical review','Launch Readiness Board'],cruise:['Interplanetary cruise','Spacecraft Operations Center'],moi:['Mars orbit insertion','Spacecraft Operations Center'],ops:['Science operations','Mars orbit'],debrief:['Mission debrief','ASEA Science Operations Center']};
+let BG=null,cardT=[];
+const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function setScene(stage){document.body.dataset.stage=stage;if(BG)BG.stage(stage);}
+function locCard(stage){const c=$('card'),L=LOC[stage];cardT.forEach(clearTimeout);cardT=[];if(!c)return;
+  if(calm()||DEMO.k<.2){c.className='loccard';return;}
+  const i=TRACK.findIndex(t=>t[0]===stage||(t[0]==='moi'&&stage==='ops'));
+  c.innerHTML=L?`<p class="mono">Stage ${String(i+1).padStart(2,'0')} of 08</p><h2>${L[1]}</h2><p class="sub">${L[0]}</p>`:'';
+  c.className='loccard show';const hold=(L?1000:120)*DEMO.k;
+  cardT.push(setTimeout(()=>{c.className='loccard show leave';},hold),setTimeout(()=>{c.className='loccard';},hold+650));}
+/* radio messages type themselves out; the hidden remainder keeps the layout from jumping */
+function typeIn(){if(calm()||DEMO.k<.2)return;main.querySelectorAll('.say p:not(.kicker)').forEach(el=>{if(el.children.length)return;const full=el.textContent,my=RUN;
+  const esc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;'),dur=Math.min(1500,300+full.length*9);el.setAttribute('aria-label',full);let t0=0;
+  const tick=now=>{if(my!==RUN||!el.isConnected)return;if(!t0)t0=now;const n=Math.min(full.length,Math.ceil((now-t0)/dur*full.length));
+    if(n>=full.length){el.textContent=full;return;}el.innerHTML=esc(full.slice(0,n))+`<span style="visibility:hidden">${esc(full.slice(n))}</span>`;requestAnimationFrame(tick);};
+  el.innerHTML=`<span style="visibility:hidden">${esc(full)}</span>`;setTimeout(()=>requestAnimationFrame(tick),(LOC[S.stage]?1150:200)*DEMO.k);});}
+function go(stage){const changed=S.stage!==stage;RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
+  if(changed)locCard(stage);VIEW[stage]();
+  if(changed){main.classList.remove('enter');void main.offsetWidth;main.classList.add('enter');typeIn();}}
 function navRow(back,next,label,disabled,note){return `<div class="nav"><button class="ghost" id="back">${back?'Back':'Main menu'}</button><div class="row">${note?`<span class="dim">${note}</span>`:''}<button class="btn" id="next" ${disabled?'disabled':''}>${label}</button></div></div>`;}
 function bindNav(back,next){$('back').onclick=()=>go(back||'title');$('next').onclick=()=>go(next);}
 
@@ -316,23 +342,26 @@ function auraScene(r){const q=r.q,pts=[50,400,1000][q];
 const VIEW={};
 VIEW.title=()=>{
   let best=null;try{best=JSON.parse(localStorage.getItem('mcb-rf-best'));}catch(e){}
-  main.innerHTML=`<section class="hero"><div class="grid" style="gap:14px">
+  main.innerHTML=`<section class="titlescreen"><div class="tmain">
     <p class="kicker">ASEA flight operations · single-player story mode</p>
     <h1>Mission Control<span>Beyond</span></h1>
     <p class="lede">Six years ago ASEA lost its Kestrel orbiter at Mars, halfway through a radar scan that nobody has been able to explain. You are the flight director sending the next spacecraft. Design it, fly it, and decide what it studies.</p>
-    <div class="row"><label class="kicker" for="scName">Name your spacecraft</label><input id="scName" class="txt" maxlength="18" value="Wayfarer" autocomplete="off"></div>
+    ${BG?'':'<div class="cvwrap" style="border:0;background:none;max-width:300px"><canvas id="globe"></canvas></div>'}
+  </div>
+  <div class="panel menu">
+    <p class="kicker">Mission 1 · Mars · intermediate</p><h3>The Red Frontier</h3>
+    <p class="dim">Investigate Martian atmospheric changes and map the planet’s surface from orbit.</p>
+    <label class="kicker" for="scName">Spacecraft call sign</label><input id="scName" class="txt" maxlength="18" value="Wayfarer" autocomplete="off">
     <label class="row" for="guided" style="gap:8px"><input type="checkbox" id="guided" checked> <span><b>Guided mode.</b> Extra hints and more time. Best for a first flight.</span></label>
-    ${best?`<p class="mono dim">Best Red Frontier score on this device: ${best.s} (${best.c})</p>`:''}
-  </div><div class="cvwrap" style="border:0;background:none"><canvas id="globe"></canvas></div></section>
-  <section class="coach"><p class="kicker">How a mission works</p><ol class="how">
-    <li><b>Plan.</b> Choose instruments and a launch date.</li><li><b>Build.</b> Fit everything inside a mass and money limit.</li><li><b>Fly.</b> Handle problems during the trip and brake into orbit.</li><li><b>Explore.</b> Point instruments at Mars and send the data home.</li><li><b>Debrief.</b> See your score and compare with real NASA findings.</li></ol></section>
-  <section class="grid g2">
-    <button class="mission live" id="m1"><p class="kicker">Mission 1 · Mars · intermediate</p><h3>The Red Frontier</h3><p>Investigate Martian atmospheric changes and map the planet’s surface from orbit.</p><span class="pill go" style="align-self:flex-start">Ready to fly</span></button>
-    ${[['Mission 2 · Europa','Beneath the Ice','Investigate Europa’s icy surface and search for evidence of potentially habitable environments.','Complete The Red Frontier to unlock'],
-       ['Mission 3 · Titan','The Outer Worlds','Explore Titan’s atmosphere and surface using a probe or lander.','Locked'],
-       ['Mission 4 · Deep space','Beyond the Horizon','Investigate the outer solar system while overcoming extreme distance and limited resources.','Locked']]
-      .map(m=>`<div class="mission locked" aria-disabled="true"><p class="kicker">${m[0]}</p><h3>${m[1]}</h3><p>${m[2]}</p><span class="pill warn" style="align-self:flex-start">${m[3]}</span></div>`).join('')}
-  </section>`;
+    <button class="btn" id="m1">Begin mission</button>
+    ${best?`<p class="mono dim">Best score on this console: ${best.s} (${best.c})</p>`:''}
+  </div></section>
+  <section class="slots">
+    ${[['Mission 2 · Europa','Beneath the Ice','Complete The Red Frontier to unlock'],['Mission 3 · Titan','The Outer Worlds','Locked'],['Mission 4 · Deep space','Beyond the Horizon','Locked']]
+      .map(m=>`<div class="mission locked" aria-disabled="true"><p class="kicker">${m[0]}</p><h3>${m[1]}</h3><span class="pill warn" style="align-self:flex-start">${m[2]}</span></div>`).join('')}
+  </section>
+  <details class="coach"><summary class="kicker">How a mission works</summary><ol class="how">
+    <li><b>Plan.</b> Choose instruments and a launch date.</li><li><b>Build.</b> Fit everything inside a mass and money limit.</li><li><b>Fly.</b> Handle problems during the trip and brake into orbit.</li><li><b>Explore.</b> Point instruments at Mars and send the data home.</li><li><b>Debrief.</b> See your score and compare with real NASA findings.</li></ol></details>`;
   view3('globe','mars',{},{w:1,h:1,spin:.12,yaw:1.2,pitch:.25},c=>drawGlobe(cv(c,340,340)));
   $('m1').onclick=async()=>{
     const nm=($('scName').value||'').replace(/[<>&"'`$\\]/g,'').trim().slice(0,18)||'Wayfarer',gd=$('guided').checked;
@@ -350,10 +379,17 @@ VIEW.briefing=()=>{
        ['Question 3','Is there ice beneath the surface?','Radar can see through dust and rock to buried ice, the most accessible water left on Mars.']]
       .map(q=>`<div class="panel"><p class="kicker">${q[0]}</p><h3>${q[1]}</h3><p class="dim">${q[2]}</p></div>`).join('')}
   </section>
+  <section class="panel"><p class="kicker">Concept of operations · the four segments of a science mission</p>
+    <div class="segs">${[['Launch segment','The launch vehicle that puts '+S.name+' on its path to Mars. You pick the date and the transfer.'],['Space segment',S.name+' itself: the orbiter and up to four instruments that collect the data.'],
+      ['Ground segment','ASEA Mission Control and its deep-space antennas. That is you, Reyes and Park.'],['User segment','Dr. Lindqvist’s science team and everyone who will use the data. The mission exists for them.']]
+      .map((x,i)=>`<div class="seg"><span class="num">${i+1}</span><b>${x[0]}</b><p class="dim">${x[1]}</p></div>`).join('')}</div>
+    <p class="kicker" style="margin-top:4px">How NASA designs a mission, and where you do each step</p>
+    <ol class="proc">${[['Identify need and goals','Briefing'],['Define the concept','Briefing'],['Define requirements','Science and trajectory'],['Design','Build'],['Build and verify','Review'],['Implement','Launch to debrief']].map(x=>`<li><b>${x[0]}</b><span>${x[1]}</span></li>`).join('')}</ol>
+    ${teach('Mission segments, concept of operations and the design process, after NASA’s “Design and Develop Science Missions” systems-engineering webinar (2025).')}</section>
   <section class="split"><div class="panel"><p class="kicker">Mission parameters</p><div class="tw"><table>
     <tr><th>Maximum spacecraft mass</th><td class="num">1,200 kg</td></tr><tr><th>Available budget</th><td class="num">180M credits</td></tr>
     <tr><th>Target operational lifetime</th><td class="num">2 years</td></tr><tr><th>Destination</th><td class="num">Mars orbit</td></tr></table></div>
-    <p class="kicker" style="margin-top:6px">Primary objectives</p><ul class="plain">
+    <p class="kicker" style="margin-top:6px">Need</p><p class="dim" style="font-size:.92rem">Explain Kestrel’s echo and learn where Mars kept its water, with a spacecraft that survives the trip.</p><p class="kicker" style="margin-top:6px">Goals · primary objectives</p><ul class="plain">
     ${['Reach Mars','Enter a stable orbit','Collect atmospheric measurements','Map selected surface regions','Investigate evidence of past water','Transmit your data to Earth'].map((o,i)=>`<li><span class="num dim">${i+1}</span> ${o}</li>`).join('')}</ul></div>
   <div class="panel"><p class="kicker">How you are scored</p><p class="num" style="font-size:.8rem">S = 0.35R + 0.25O + 0.20E + 0.10P + 0.10L</p><ul class="plain dim" style="font-size:.9rem">
     <li><b style="color:var(--text)">R</b> Scientific return, 35%</li><li><b style="color:var(--text)">O</b> Objective completion, 25%</li><li><b style="color:var(--text)">E</b> Resource efficiency, 20%</li><li><b style="color:var(--text)">P</b> Operational performance, 10%</li><li><b style="color:var(--text)">L</b> Reliability, 10%</li></ul>
@@ -364,7 +400,7 @@ VIEW.briefing=()=>{
 
 VIEW.science=()=>{
   const d=design();
-  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`
+  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`<p class="teach"><b>Begin with the end in mind.</b> Decide what data the science team needs at the end, then work backwards: that data fixes the instruments, and the instruments fix the power, storage and downlink you must build.</p>`+`
   <section class="grid g2">${IK.map(k=>{const i=INST[k];return `<button class="opt" data-k="${k}" aria-pressed="${S.inst[k]}">
     <canvas class="i3" id="i3${k}" aria-hidden="true"></canvas><span class="kicker">${i.tag} · ${S.inst[k]?'installed':'left on the ground'}</span><b style="font-family:var(--display);font-size:1.6rem;text-transform:uppercase">${i.name}</b>
     <span>${i.desc}</span><span class="s">${i.mass} kg · ${i.cost}M · ${i.power} W · ${i.data} Gb per observation · reliability ${f0(i.rel*100)}%</span>
@@ -388,6 +424,7 @@ VIEW.planning=()=>{
   <div class="grid"><div class="panel"><p class="kicker">Transfer trajectory</p><div class="choices">${Object.keys(TR).map(k=>`<button class="opt" data-tr="${k}" aria-pressed="${S.transfer===k}"><b>${TR[k].n}</b><span class="s">${TR[k].d}</span></button>`).join('')}</div></div>
     <div class="panel"><p class="kicker">Intended Mars orbit</p><div class="choices">${Object.keys(ORB).map(k=>`<button class="opt" data-orb="${k}" aria-pressed="${S.orbit===k}"><b>${ORB[k].n}</b><span class="s">${ORB[k].d}</span></button>`).join('')}</div></div>
     <div class="panel" id="planOut"></div></div></section>
+  <p class="teach"><b>Check it like the professionals.</b> This screen uses the patched-conic method that real designers start from. NASA’s open-source <a href="https://sourceforge.net/projects/gmat/" target="_blank" rel="noopener">General Mission Analysis Tool (GMAT)</a> does the full calculation. You can export this flight plan as a GMAT script from the review board.</p>
   ${navRow(true,'design','Build the spacecraft')}`;
   const c=cv('sys',460,460);
   const upd=()=>{const p=plan();drawSys(c,S.dep,p.tr,null);$('depLab').textContent=dateStr(S.dep);
@@ -452,16 +489,16 @@ VIEW.design=()=>{
 
 VIEW.review=()=>{
   const c=checks(),crit=c.filter(x=>x.crit),fails=crit.filter(x=>!x.ok).length;
-  const row=x=>`<div class="chk"><span class="pill ${x.ok?'go':x.crit?'nogo':'warn'}">${x.ok?'Go':x.crit?'No go':'Caution'}</span><div><b>${x.name}</b><div class="dim" style="font-size:.88rem">${x.detail}${!x.ok&&x.fix?` <b style="color:var(--text)">Fix:</b> ${x.fix}`:''}</div></div></div>`;
+  const row=x=>`<div class="chk"><span class="pill ${x.ok?'go':x.crit?'nogo':'warn'}">${x.ok?'Go':x.crit?'No go':'Caution'}</span><div><b>${x.name}</b><div class="dim" style="font-size:.88rem">${x.detail}${!x.ok&&x.fix?` <b style="color:var(--text)">Fix:</b> ${x.fix}`:''}</div>${x.ver?`<div class="ver">Verified by ${x.ver}</div>`:''}</div></div>`;
   main.innerHTML=head(5,'Technical review','Launch Readiness Board',fails?`The board found ${fails} critical problem${fails>1?'s':''}. Each one comes with a suggested fix.`:'Every critical check passes. Cautions will not stop the launch, but they show where the mission is likely to hurt.')+say('reyes',fails?'No-go items are not opinions. Fix them and come back.':`The board has no objections, and neither do I. Take ${S.name} to the pad.`)+`
   <section class="grid g2"><div class="panel"><p class="kicker">Critical checks</p>${crit.map(row).join('')}</div>
   <div class="panel"><p class="kicker">Cautions</p>${c.filter(x=>!x.crit).map(row).join('')}
     <div class="pair" id="pad3"><div><p class="kicker">${S.name}</p><div class="cvwrap"><canvas id="rvCraft"></canvas></div></div><div><p class="kicker">Launch vehicle</p><div class="cvwrap"><canvas id="rvRocket"></canvas></div></div></div>
-    ${teach('Engineering requirements, margins and redundancy. Real missions hold reviews like this at every design stage.')}
-    <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button></div></div></section>
+    ${teach('Requirements, verification, margins and redundancy. Each requirement is listed with how it is checked, the way real review boards work.')}
+    <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button><button class="ghost" id="gmat">Export flight plan for GMAT</button></div></div></section>
   ${navRow(true,'cruise','Launch',fails>0,fails?'Launch is blocked':'')}`;
   if(!view3('rvCraft','craft',craftOpts(),{w:1,h:1,spin:.3,pitch:.38})|!view3('rvRocket','rocket',{},{w:1,h:1,spin:.4,pitch:.12}))$('pad3').remove();
-  $('toPlan').onclick=()=>go('planning');$('toDesign').onclick=()=>go('design');
+  $('gmat').onclick=exportGmat;$('toPlan').onclick=()=>go('planning');$('toDesign').onclick=()=>go('design');
   $('back').onclick=()=>go('design');$('next').onclick=launch;
 };
 
@@ -843,14 +880,14 @@ VIEW.debrief=()=>{
       'SHARAD showed the north polar layered deposits are about 2 km thick and almost entirely water ice, and found buried glaciers at mid-latitudes under a blanket of rock debris.','cRad')}
     <div class="panel"><p class="kicker">Surface imaging</p><p style="font-size:.92rem" class="sim">${sc.any('cam')?`Your camera imaged ${Object.keys(REG).filter(r=>sc.sci(r,'cam')>0).map(r=>REG[r].n).join(', ')}.`:'No camera data reached Earth.'}</p>
       <p style="font-size:.92rem" class="ref">HiRISE resolves objects about a metre across from 300 km up. Mars Odyssey’s THEMIS maps surface temperature by day and night, which separates bare rock from dust.</p>
-      <p class="kicker">Real archives to compare against</p><ul class="plain" style="font-size:.9rem"><li><a href="https://www.uahirise.org/">HiRISE image archive</a></li><li><a href="https://pds-geosciences.wustl.edu/missions/mro/">NASA PDS Geosciences Node: CRISM and SHARAD</a></li><li><a href="https://ssd.jpl.nasa.gov/horizons/">JPL Horizons planetary positions</a></li></ul>
+      <p class="kicker">Real archives to compare against</p><ul class="plain" style="font-size:.9rem"><li><a href="https://www.uahirise.org/">HiRISE image archive</a></li><li><a href="https://pds-geosciences.wustl.edu/missions/mro/">NASA PDS Geosciences Node: CRISM and SHARAD</a></li><li><a href="https://ssd.jpl.nasa.gov/horizons/">JPL Horizons planetary positions</a></li><li><a href="https://www.nasa.gov/smallsat-institute">NASA Small Spacecraft Systems Virtual Institute: “Design and Develop Science Missions”</a></li><li><a href="https://www.nasa.gov/reference/systems-engineering-handbook/">NASA Systems Engineering Handbook</a></li><li><a href="https://sourceforge.net/projects/gmat/">GMAT, NASA’s open-source mission analysis tool</a></li></ul>
       ${teach('Scientific interpretation, evidence, uncertainty.')}</div></section>
   <section class="grid g2"><div class="panel"><p class="kicker">Mission archive</p><div class="tw"><table>
     ${f?`<tr><th>Departure</th><td>${dateStr(f.dep)}, ${TR[S.transfer].n}, ${f0(f.tr.T)} days</td></tr><tr><th>Orbit plan</th><td>${ORB[f.orbit].n}</td></tr>
     <tr><th>Spacecraft</th><td>${S.name}, ${f0(f.wet0)} kg, ${f1(f.cost)}M, design reliability ${f1(f.rel*100)}%</td></tr><tr><th>Systems</th><td>${Object.keys(SYS).map(k=>tier(k).n).join(', ')}${S.red?', redundant critical components':''}</td></tr>
     <tr><th>Instruments</th><td>${f.on.map(k=>INST[k].name).join(', ')}</td></tr><tr><th>Propellant left</th><td>${f0(S.prop)} of ${f0(f.prop0)} kg</td></tr>`:''}
     ${o?`<tr><th>Science</th><td>${f1(o.delivered)} delivered, ${f1(o.lost)} lost on board</td></tr>`:''}</table></div>
-    <div class="row"><button class="ghost" id="copy">Copy mission report</button></div></div>
+    <div class="row"><button class="ghost" id="copy">Copy mission report</button><button class="ghost" id="gmat">Export flight plan for GMAT</button></div></div>
     <div class="panel"><p class="kicker">Flight log</p><div class="log" style="max-height:260px">${S.log.map(l=>`<div><b>›</b> ${l}</div>`).join('')}</div></div></section>
   <section class="panel" style="border-color:${S.fail.length?'var(--line)':'var(--rust)'}"><p class="kicker">${S.fail.length?'Locked':'Unlocked'}</p><h3>${S.fail.length?'Europa stays out of reach':'Mission 2: Beneath the Ice'}</h3>
     <p class="dim">${S.fail.length?'Complete The Red Frontier without a hard failure to open the Europa mission.':'Europa mission access, advanced propulsion and orbital-planning components, improved autonomy and new notebook entries. The Europa mission itself is not built yet.'}</p></section>
@@ -881,6 +918,7 @@ VIEW.debrief=()=>{
     ctx.fillStyle='#efe6d9';ctx.font='10px "Martian Mono",monospace';ctx.fillText('surface',8,24);ctx.fillText('ice and dust layers',8,104);ctx.fillText('base of the ice, about 2 km down',8,h-14);
     ctx.fillStyle='#a39686';ctx.textAlign='right';ctx.fillText(has?'simulated radargram, north polar cap':'reference only: no polar radar returned',w-8,24);ctx.textAlign='left';}
   const qz=$('quiz');if(qz)qz.querySelectorAll('button').forEach(b=>b.onclick=()=>{const ok=b.dataset.q==='1';qz.innerHTML=`<span class="pill ${ok?'go':'warn'}">${ok?'Correct':'Not quite'}</span><span style="font-size:.88rem">Clays hold water in their structure, and that water absorbs light near 1.9 µm. The 2.3 µm dip comes from iron and magnesium bonded to hydroxyl.</span>`;});
+  $('gmat').onclick=exportGmat;
   $('again').onclick=()=>{S=fresh();go('title');};
   $('copy').onclick=async()=>{const t=`THE RED FRONTIER — mission report\nScore ${f1(sc.S)} (${sc.cls[1]})\nR ${f0(sc.R)}  O ${f0(sc.O)}  E ${f0(sc.E)}  P ${f0(sc.P)}  L ${f0(sc.L)}  Aura ${f0(S.aura)}\n${S.fail.length?'Hard failures: '+S.fail.join('; ')+'\n':''}\n${S.log.join('\n')}`;
     try{await navigator.clipboard.writeText(t);toast('Mission report copied.');}catch(e){toast('Copy was blocked by the browser.');}};
@@ -897,14 +935,127 @@ $('demoBtn').onclick=async()=>{
     if(id==='aura')auraScene({q:2,km:1234});else Cine.play(id,{big:id,bigAt:.5,min:8,col:0x8fc8da,lines:[{text:'Cutscene preview.'}]});}
 };
 
+/* ============ GMAT export ============
+   Writes the current flight plan as a script for NASA's General Mission Analysis Tool
+   (https://sourceforge.net/projects/gmat/). It is a starting point: the departure burn is the game's
+   patched-conic estimate and is not yet targeted, so in GMAT the spacecraft will pass near Mars's orbit
+   rather than hit the planet until a Target sequence is added. */
+function gmatScript(){
+  const d=design(),f=S.fl||{dep:S.dep,tr:plan().tr,prop0:S.prop,wet0:d.wet},tr=f.tr,MU_E=398600.4415,r0=6378.14+185;
+  const dv=Math.sqrt(tr.vinfDep**2+2*MU_E/r0)-Math.sqrt(MU_E/r0),dt=new Date(BASE+f.dep*DAY);
+  const ep=`${String(dt.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getUTCMonth()]} ${dt.getUTCFullYear()} 00:00:00.000`;
+  let sc=S.name.replace(/[^A-Za-z0-9_]/g,'');if(!/^[A-Za-z]/.test(sc))sc='SC'+sc;
+  return `%  Mission Control: Beyond - The Red Frontier
+%  Flight plan for ${S.name}, exported from the game for GMAT (General Mission Analysis Tool).
+%  ${TR[S.transfer].n}, departing ${dateStr(f.dep)}, planned flight time ${f1(tr.T)} days.
+%
+%  This is a starting point, not a finished design. The departure burn below is the game's
+%  patched-conic estimate (${f2(dv)} km/s from a 185 km parking orbit, for a hyperbolic excess
+%  speed of ${f2(tr.vinfDep)} km/s). The parking-orbit plane and the burn are not targeted, so add a
+%  Target sequence (see the GMAT tutorial "Mars B-Plane Targeting") to make it reach Mars.
+
+Create Spacecraft ${sc};
+${sc}.DateFormat = UTCGregorian;
+${sc}.Epoch = '${ep}';
+${sc}.CoordinateSystem = EarthMJ2000Eq;
+${sc}.DisplayStateType = Keplerian;
+${sc}.SMA = ${f2(r0)};
+${sc}.ECC = 0.0001;
+${sc}.INC = 28.5;
+${sc}.RAAN = 0;
+${sc}.AOP = 0;
+${sc}.TA = 0;
+${sc}.DryMass = ${f0(f.wet0-f.prop0).replace(/,/g,'')};
+${sc}.Tanks = {MainTank};
+
+Create ChemicalTank MainTank;
+MainTank.FuelMass = ${f0(f.prop0).replace(/,/g,'')};
+MainTank.Volume = 1.0;
+
+Create ForceModel NearEarth_FM;
+NearEarth_FM.CentralBody = Earth;
+NearEarth_FM.PrimaryBodies = {Earth};
+NearEarth_FM.PointMasses = {Luna, Sun};
+NearEarth_FM.Drag = None;
+NearEarth_FM.SRP = Off;
+
+Create ForceModel DeepSpace_FM;
+DeepSpace_FM.CentralBody = Sun;
+DeepSpace_FM.PointMasses = {Sun, Earth, Luna, Mars, Jupiter};
+DeepSpace_FM.Drag = None;
+DeepSpace_FM.SRP = Off;
+
+Create Propagator NearEarth;
+NearEarth.FM = NearEarth_FM;
+NearEarth.Type = RungeKutta89;
+NearEarth.InitialStepSize = 60;
+NearEarth.Accuracy = 1e-11;
+NearEarth.MaxStep = 600;
+
+Create Propagator DeepSpace;
+DeepSpace.FM = DeepSpace_FM;
+DeepSpace.Type = PrinceDormand78;
+DeepSpace.InitialStepSize = 600;
+DeepSpace.Accuracy = 1e-11;
+DeepSpace.MaxStep = 86400;
+
+Create ImpulsiveBurn TOI;
+TOI.CoordinateSystem = Local;
+TOI.Origin = Earth;
+TOI.Axes = VNB;
+TOI.Element1 = ${dv.toFixed(4)};
+TOI.Element2 = 0;
+TOI.Element3 = 0;
+
+Create CoordinateSystem SunEcliptic;
+SunEcliptic.Origin = Sun;
+SunEcliptic.Axes = MJ2000Ec;
+
+Create OrbitView SolarSystemView;
+SolarSystemView.Add = {${sc}, Earth, Mars, Sun};
+SolarSystemView.CoordinateSystem = SunEcliptic;
+SolarSystemView.ViewPointReference = Sun;
+SolarSystemView.ViewPointVector = [0 0 500000000];
+SolarSystemView.ViewDirection = Sun;
+SolarSystemView.ViewUpCoordinateSystem = SunEcliptic;
+
+Create ReportFile CruiseReport;
+CruiseReport.Filename = '${sc}_cruise.txt';
+CruiseReport.Add = {${sc}.UTCGregorian, ${sc}.Sun.RMAG, ${sc}.Mars.RMAG};
+
+BeginMissionSequence;
+
+Maneuver TOI(${sc});
+Propagate NearEarth(${sc}) {${sc}.Earth.RMAG = 925000};
+Propagate DeepSpace(${sc}) {${sc}.ElapsedDays = ${f1(tr.T)}};
+`;}
+async function exportGmat(){const t=gmatScript(),name=(S.name.replace(/[^A-Za-z0-9_]/g,'')||'mission')+'_red_frontier.script';
+  try{const a=document.createElement('a'),u=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);
+    try{await navigator.clipboard.writeText(t);}catch(e){}toast(`Saved ${name}. Open it in GMAT with File, Open.`);}
+  catch(e){try{await navigator.clipboard.writeText(t);toast('GMAT script copied. Paste it into a new GMAT script.');}catch(_){toast('The browser blocked the export.');}}}
+
+/* ============ console sound (off until the player turns it on) ============ */
+const SFX=(()=>{let ac=null,on=false,hum=null;try{on=localStorage.getItem('mcb-sfx')==='1';}catch(e){}
+  const ctx=()=>{if(!ac){const C=window.AudioContext||window.webkitAudioContext;if(C)ac=new C();}return ac;};
+  function blip(f=920,d=.05,v=.035,type='sine'){if(!on)return;try{const a=ctx();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(v,a.currentTime);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+d);o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+d+.03);}catch(e){}}
+  function ambient(){try{const a=ctx();if(!a)return;if(a.state==='suspended')a.resume();if(hum){hum.gain.setTargetAtTime(on?.022:0,a.currentTime,.4);return;}if(!on)return;
+    hum=a.createGain();hum.gain.value=0;const lp=a.createBiquadFilter();lp.type='lowpass';lp.frequency.value=220;lp.connect(hum);hum.connect(a.destination);
+    for(const f of[55,82.7,110.4]){const o=a.createOscillator();o.type='sawtooth';o.frequency.value=f;o.connect(lp);o.start();}hum.gain.setTargetAtTime(.022,a.currentTime,.8);}catch(e){}}
+  return {blip,ambient,get on(){return on},set(v){on=v;try{localStorage.setItem('mcb-sfx',v?'1':'0');}catch(e){}ambient();},
+    alarm(){blip(440,.22,.05,'square');setTimeout(()=>blip(330,.3,.05,'square'),240);}};})();
+{const b=$('sfxBtn');if(b){const paint=()=>{b.textContent=SFX.on?'Sound on':'Sound off';b.setAttribute('aria-pressed',SFX.on);};paint();b.onclick=()=>{SFX.set(!SFX.on);paint();SFX.blip(1200,.08);};}
+  addEventListener('click',e=>{const t=e.target.closest&&e.target.closest('button');if(!t||t.id==='sfxBtn')return;SFX.ambient();SFX.blip(t.classList.contains('btn')?660:t.classList.contains('choice')?780:980,t.classList.contains('btn')?.09:.045);},true);
+  const ck=$('clock');if(ck){const tk=()=>{ck.textContent='UTC '+new Date().toISOString().slice(11,19);};tk();setInterval(tk,1000);}}
+
 /* ============ boot ============ */
+BG=Models.backdrop($('bg'));if(!BG){const c=$('bg');if(c)c.remove();document.body.classList.add('nobg');}
 function start(data){
-  if(data&&data.stage){S=data;RUN++;chrome();VIEW[S.stage]();}
+  if(data&&data.stage){S=data;RUN++;chrome();setScene(S.stage);VIEW[S.stage]();}
   else go('title');
 }
 /* back-to-top button: appears once the page has been scrolled a screen down */
 {const tb=$('topBtn');if(tb){const sh=()=>tb.classList.toggle('show',scrollY>innerHeight*.6);addEventListener('scroll',sh,{passive:true});sh();
   tb.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}}
-window.__game={get S(){return S},DEMO,go,plan,design,checks,bestDep};
+window.__game={get S(){return S},DEMO,go,plan,design,checks,bestDep,gmatScript};
 window.claude?.hot?.snapshot?.(()=>S);
 if(window.claude?.hot?.ready)window.claude.hot.ready(()=>start(window.claude.hot.data??{}));else start({});

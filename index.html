@@ -9,10 +9,14 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="loccard" id="card" aria-hidden="true"></div>
 <header class="bar">
   <div class="brand">Mission Control<i>:</i> Beyond</div>
   <ol class="track" id="track" aria-label="Mission stages"></ol>
   <div class="hstats" id="hstats"></div>
+  <span class="chip clock" id="clock"></span>
+  <button class="ghost" id="sfxBtn" aria-pressed="false">Sound off</button>
   <button class="ghost" id="nbBtn">Notebook</button>
 </header>
 <main id="main"></main>

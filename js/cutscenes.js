@@ -3,7 +3,7 @@
    Cine.play(sceneId, options) returns a Promise that resolves when the scene ends or is skipped.
    If three.js or WebGL is unavailable, a simple 2D version plays instead, so the game never blocks. */
 const Cine=(()=>{
-  let ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex;
+  let current=null,ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex;
   const NP=420;
 
   const sprite=(c,b)=>Models.sprite(c,b);
@@ -97,7 +97,7 @@ const Cine=(()=>{
   function play(id,o={}){return new Promise(res=>{
     const lines=o.lines||[],dl=lines.map(l=>2+l.text.length*.055),total=Math.max(o.min||5,dl.reduce((a,b)=>a+b,0)+.9);
     const el=document.createElement('div');el.className='cine';
-    el.innerHTML=`<div class="big" id="cBig">${o.big||''}</div><div class="capwrap"><div class="aura" id="cAura"></div><div class="cap" id="cCap" aria-live="polite"></div></div><button class="ghost skip" id="cSkip">Skip</button>`;
+    el.innerHTML=`<div class="big" id="cBig">${o.big||''}</div><div class="capwrap"><div class="aura" id="cAura"></div><div class="cap" id="cCap" aria-live="polite"></div></div><button class="ghost skip" id="cSkip">Skip</button><div class="cfade" id="cFade"></div>`;
     document.body.appendChild(el);
     const use3=init()&&!!SC[id];let c2,ctx2;
     const size=()=>{if(use3){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.fov=innerWidth<innerHeight?62:42;cam.updateProjectionMatrix();}else{c2.width=innerWidth;c2.height=innerHeight;}};
@@ -111,8 +111,21 @@ const Cine=(()=>{
     const still=matchMedia('(prefers-reduced-motion: reduce)').matches,k=Math.max(DEMO.k,.02),t0=performance.now();
     let alive=true,last=t0,shown=-2;
     const cap=el.querySelector('#cCap'),big=el.querySelector('#cBig'),au=el.querySelector('#cAura');
-    const end=()=>{if(!alive)return;alive=false;removeEventListener('resize',size);el.remove();if(o.aura){S.aura+=o.aura;}if(typeof chrome==='function')chrome();res();};
-    el.querySelector('#cSkip').onclick=end;
+    /* Transitions: every scene fades up from black and back down to black. The black cover stays for a
+       moment after the scene ends, so a following scene or the next game screen is revealed by a fade
+       instead of a hard cut. */
+    const fadeEl=el.querySelector('#cFade'),FT=still?0:Math.round(520*Math.min(1,k));let closing=false;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{if(!closing){fadeEl.style.transitionDuration=FT+'ms';fadeEl.classList.add('clear');el.classList.add('on');}}));
+    const finish=()=>{if(!alive)return;alive=false;current=null;removeEventListener('resize',size);
+      if(use3&&R.domElement.parentNode===el)el.removeChild(R.domElement);el.querySelectorAll('.big,.capwrap,.skip,canvas').forEach(x=>x.remove());
+      el.classList.add('out');el.style.transitionDuration=FT+'ms';
+      if(o.aura){S.aura+=o.aura;}if(typeof chrome==='function')chrome();res();
+      requestAnimationFrame(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),FT+60);});};
+    const end=(fast)=>{if(!alive||closing)return;closing=true;
+      if(fast===true||!FT)return finish();
+      fadeEl.style.transitionDuration=FT+'ms';fadeEl.classList.remove('clear');el.classList.remove('on');setTimeout(finish,FT+30);};
+    current=()=>{closing=false;end(true);};
+    el.querySelector('#cSkip').onclick=()=>end();
     (function fr(now){if(!alive)return;
       const s=(now-t0)/1000/k,u=Math.min(1,s/total),dt=Math.min(.05,(now-last)/1000);last=now;
       let acc=0,cur=-1;for(let i=0;i<lines.length;i++){if(s>=acc+.25&&s<acc+dl[i])cur=i;acc+=dl[i];}
@@ -121,8 +134,8 @@ const Cine=(()=>{
       else if(o.big&&u>(o.bigAt??.12))big.classList.add('in');
       if(o.aura&&u>.5){au.classList.add('in');au.textContent='AURA +'+Math.round(o.aura*Math.min(1,(u-.5)/.3)).toLocaleString('en-US');}
       if(use3){SC[id](still?.5:u,still?3:s,o,dt);mars.userData.sun.copy(sun.position).normalize();earth.userData.sun.copy(sun.position).normalize();earth.userData.clouds.rotation.y+=dt*.004;R.render(scene,cam);}else draw2(ctx2,c2.width,c2.height,u,s);
-      if(s>=total)return end();
+      if(s>=total&&!closing)end();
       requestAnimationFrame(fr);})(t0);
   });}
-  return {play,scenes:()=>Object.keys(SC),get mode(){return ok===null?'not started':ok?'3d':'2d'}};
+  return {play,skip:()=>{if(current)current();},get playing(){return !!current},scenes:()=>Object.keys(SC),get mode(){return ok===null?'not started':ok?'3d':'2d'}};
 })();

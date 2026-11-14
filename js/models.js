@@ -313,7 +313,7 @@ const Models=(()=>{
   function loop(now){
     views=views.filter(v=>v.canvas.isConnected);if(!views.length){looping=false;return;}
     const dt=Math.min(.05,(now-last)/1000||0);last=now;
-    if(!document.querySelector('.cine')){const still=matchMedia('(prefers-reduced-motion: reduce)').matches,dpr=Math.min(2,window.devicePixelRatio||1);
+    if(!document.querySelector('.cine:not(.out)')){const still=matchMedia('(prefers-reduced-motion: reduce)').matches,dpr=Math.min(2,window.devicePixelRatio||1);
       for(const v of views){const cw=v.canvas.clientWidth;if(!cw)continue;const w=Math.round(cw*dpr),h=Math.round(cw*dpr*(v.cfg.h||3)/(v.cfg.w||4));
         if(v.canvas.width!==w||v.canvas.height!==h){v.canvas.width=w;v.canvas.height=h;}
         if(v.hold>0)v.hold-=dt;else if(!still)v.yaw+=v.spin*dt;
@@ -324,6 +324,39 @@ const Models=(()=>{
         R.render(v.scene,v.cam);v.ctx.clearRect(0,0,w,h);v.ctx.drawImage(R.domElement,0,0);}}
     requestAnimationFrame(loop);}
 
+  /* ---------- the view out of the window: a full-page scene behind the console ----------
+     Each game stage has a "pose" (where Mars and Earth sit); changing stage glides from one to the next,
+     so moving through the mission feels like travelling rather than loading a new page. */
+  const POSE={title:{m:[3.3,-.2,-9,3],e:[-70,6,-90,1.5]},briefing:{m:[5.4,1.6,-15,2.4],e:[-70,6,-90,1.5]},science:{m:[-6.2,-3.2,-12,3.2],e:[-70,6,-90,1.5]},
+    planning:{m:[9,4,-70,1.1],e:[-6.5,-4.6,-12,4]},design:{m:[30,14,-160,1],e:[0,-13.5,-14,12]},review:{m:[30,14,-160,1],e:[1.5,-13.2,-14,12]},
+    cruise:{m:[8,3.2,-90,1.1],e:[-10,-4.5,-80,1.2]},moi:{m:[5.2,-2,-10,4.2],e:[-60,20,-200,1]},ops:{m:[0,-14.3,-14,12.6],e:[-60,20,-200,1]},debrief:{m:[4.6,-1,-17,3],e:[-14,7,-120,1]}};
+  function backdrop(canvas){
+    try{T3=T3||window.THREE;if(!T3||!canvas)return null;
+      const r=new T3.WebGLRenderer({canvas,antialias:true,powerPreference:'low-power'});r.setPixelRatio(1);r.setClearColor(0x050403);grade(r);
+      const scene=new T3.Scene(),cam=new T3.PerspectiveCamera(40,1,.1,4000),sunPos=[-7,3,4];lights(scene,sunPos);
+      const sg=new T3.BufferGeometry(),N=2200,sp=new Float32Array(N*3),rr=prng(21);
+      for(let i=0;i<N;i++){const a=rr()*TAU,z=rr()*2-1,q=Math.sqrt(1-z*z);sp[i*3]=q*Math.cos(a)*1500;sp[i*3+1]=z*1500;sp[i*3+2]=q*Math.sin(a)*1500;}
+      sg.setAttribute('position',new T3.BufferAttribute(sp,3));const stars=new T3.Points(sg,new T3.PointsMaterial({color:0xefe6d9,size:1.5,sizeAttenuation:false}));scene.add(stars);
+      const mars=planet('mars'),earth=planet('earth');scene.add(mars,earth);
+      for(const p of[mars,earth])p.userData.sun.set(...sunPos).normalize();
+      let cur=null,tgt=POSE.title,last=0,slow=0,w=0,h=0,dead=false;
+      const put=(o,a)=>{o.position.set(a[0],a[1],a[2]);o.scale.setScalar(a[3]);};
+      const still=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+      canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();dead=true;});
+      function frame(now){if(dead)return;requestAnimationFrame(frame);
+        if(document.hidden||document.querySelector('.cine:not(.out)'))return;
+        if(now-last<(slow>6?110:32))return;const dt=Math.min(.2,(now-last)/1000||0);last=now;
+        const cw=canvas.clientWidth,ch=canvas.clientHeight;if(!cw||!ch)return;
+        if(cw!==w||ch!==h){w=cw;h=ch;r.setSize(w,h,false);cam.aspect=w/h;cam.fov=w<h?58:40;cam.updateProjectionMatrix();}
+        if(!cur){cur={m:tgt.m.slice(),e:tgt.e.slice()};}
+        const k=still()?1:1-Math.exp(-dt*1.4);for(const key of['m','e'])for(let i=0;i<4;i++)cur[key][i]+=(tgt[key][i]-cur[key][i])*k;
+        put(mars,cur.m);put(earth,cur.e);
+        if(!still()){mars.rotation.y+=dt*.012;earth.rotation.y+=dt*.016;earth.userData.clouds.rotation.y+=dt*.004;stars.rotation.y+=dt*.0015;}
+        const t0=performance.now();r.render(scene,cam);slow=performance.now()-t0>28?slow+1:Math.max(0,slow-1);}
+      requestAnimationFrame(frame);
+      return {stage:n=>{if(POSE[n])tgt=POSE[n];}};
+    }catch(e){console.warn('Backdrop unavailable:',e&&e.message);return null;}}
+
   const use=fn=>(...a)=>{T3=T3||window.THREE;return fn(...a);};
-  return {view,craft:use(craft),rocket:use(rocket),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},preload:()=>loadGLB(),get craftSource(){return ['none','loading','model file','built-in'][GLB.state]},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
+  return {view,backdrop,craft:use(craft),rocket:use(rocket),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},preload:()=>loadGLB(),get craftSource(){return ['none','loading','model file','built-in'][GLB.state]},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
 })();
