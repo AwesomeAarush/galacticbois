@@ -1,7 +1,8 @@
 "use strict";
 /* Shared 3D assets (three.js r128): planets, the spacecraft, instruments and the launch vehicle.
    Used by the cutscenes (js/cutscenes.js) and by the small live 3D views inside the game screens.
-   Everything is generated in code, so there are no image files to ship.
+   Planets, instruments and the rocket are generated in code. The spacecraft is assets/spacecraft_3d.glb
+   (with a generated stand-in while it loads).
    Optional: drop real NASA maps at assets/mars.jpg and assets/earth.jpg (equirectangular, 2:1,
    longitude 0 in the centre) and they replace the generated planet surfaces automatically. */
 const Models=(()=>{
@@ -150,8 +151,66 @@ const Models=(()=>{
   function instrument(k){const g=new T3.Group(),p=instPart(k);p.rotation.x=Math.PI;const s=k==='radar'?.95:k==='cam'?2.3:3.1;p.scale.setScalar(s);
     g.add(M(cyl(k==='radar'?.5:.62,k==='radar'?.5:.62,.05,6),'foil',0,-.03,0));g.add(p);return g;}
 
-  /* ---------- the spacecraft. o: {wing,dish,inst[],structure,engine,thermal,battery,red,prop,grey} ---------- */
+  /* ---------- the spacecraft model file (assets/spacecraft_3d.glb) ----------
+     Loaded once, merged to one mesh per material (615 parts -> 14 draw calls), turned so its nose
+     points along +z and its aft end along -z like the built-in craft, and scaled to the same size.
+     Until it arrives (or if it cannot be loaded) the built-in craft is shown instead. */
+  const GLB={state:0,proto:null,wait:[],aft:-3.1,rad:3.25};
+  function mergeGLB(root){
+    const by=new Map();root.updateMatrixWorld(true);
+    root.traverse(m=>{if(!m.isMesh)return;const k=m.material.uuid;if(!by.has(k))by.set(k,{mat:m.material,list:[]});by.get(k).list.push(m);});
+    const out=new T3.Group();
+    for(const {mat,list} of by.values()){let nv=0,ni=0,uv=false;
+      for(const m of list){const g=m.geometry;nv+=g.attributes.position.count;ni+=g.index?g.index.count:g.attributes.position.count;uv=uv||!!g.attributes.uv;}
+      const P=new Float32Array(nv*3),N=new Float32Array(nv*3),U=uv?new Float32Array(nv*2):null,I=new Uint32Array(ni);let vo=0,io=0,hasN=true;
+      for(const m of list){const g=m.geometry.clone();g.applyMatrix4(m.matrixWorld);const a=g.attributes,c=a.position.count;
+        P.set(a.position.array.subarray(0,c*3),vo*3);if(a.normal)N.set(a.normal.array.subarray(0,c*3),vo*3);else hasN=false;
+        if(U&&a.uv)for(let i=0;i<c;i++){U[(vo+i)*2]=a.uv.getX(i);U[(vo+i)*2+1]=a.uv.getY(i);}
+        if(g.index)for(let i=0;i<g.index.count;i++)I[io++]=g.index.getX(i)+vo;else for(let i=0;i<c;i++)I[io++]=vo+i;
+        vo+=c;g.dispose();}
+      const G=new T3.BufferGeometry();G.setAttribute('position',new T3.BufferAttribute(P,3));G.setAttribute('normal',new T3.BufferAttribute(N,3));if(U)G.setAttribute('uv',new T3.BufferAttribute(U,2));
+      G.setIndex(new T3.BufferAttribute(I,1));if(!hasN)G.computeVertexNormals();G.userData.shared=true;
+      mat.envMapIntensity=1.25;out.add(new T3.Mesh(G,mat));}
+    return out;}
+  function loadGLB(cb){
+    T3=T3||window.THREE;
+    if(GLB.state===2)return cb&&cb(true);if(GLB.state===3)return cb&&cb(false);
+    if(cb)GLB.wait.push(cb);if(GLB.state===1)return;GLB.state=1;
+    const done=okk=>{GLB.state=okk?2:3;GLB.wait.splice(0).forEach(f=>{try{f(okk);}catch(e){console.warn(e);}});};
+    try{if(!T3||!T3.GLTFLoader)throw new Error('GLTFLoader missing');
+      const L=new T3.GLTFLoader(),use=gl=>{try{
+        const m=mergeGLB(gl.scene),b=new T3.Box3().setFromObject(m),c=b.getCenter(new T3.Vector3()),sz=b.getSize(new T3.Vector3());
+        const long=sz.x>=sz.z?'x':'z',k=5.4/Math.max(sz.x,sz.y,sz.z),h=new T3.Group();
+        m.position.copy(c).multiplyScalar(-1);h.add(m);h.scale.setScalar(k);if(long==='x')h.rotation.y=-Math.PI/2;
+        GLB.proto=new T3.Group();GLB.proto.add(h);GLB.aft=-(long==='x'?sz.x:sz.z)*k/2;GLB.rad=Math.hypot(sz.x,sz.y,sz.z)*k/2*.62;GLB.hull=Math.min(sz.y,sz.z)*k*.1;
+        done(true);}catch(e){console.warn('Spacecraft model could not be prepared:',e&&e.message);done(false);}};
+      const fail=()=>{console.warn('Spacecraft model not loaded; using the built-in craft.');done(false);};
+      /* hosts that cannot serve .glb files can ship the same model as js/spacecraft_glb.js (base64) instead */
+      const embedded=()=>{const sc=document.createElement('script');sc.src='js/spacecraft_glb.js';sc.onerror=fail;
+        sc.onload=()=>{try{const bin=atob(window.SPACECRAFT_GLB_B64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);L.parse(u.buffer,'',use,fail);}catch(e){fail();}};document.head.appendChild(sc);};
+      L.load('assets/spacecraft_3d.glb',use,undefined,embedded);
+    }catch(e){console.warn('Spacecraft model unavailable:',e&&e.message);done(false);}}
+  const dullMat=x=>{const c=x.clone();const l=c.color.getHSL({h:0,s:0,l:0});c.color.setHSL(l.h,l.s*.25,l.l*.55);if(c.emissive)c.emissive.setScalar(0);c.envMapIntensity=.5;return c;};
+  function glbCraft(g,o){
+    const body=GLB.proto.clone(true);g.add(body);
+    if(o.grey)body.traverse(m=>{if(m.isMesh)m.material=dullMat(m.material);});
+    /* the chosen instruments ride under the main bridge, so the design screen still shows what is fitted */
+    const parts={},list=o.inst||['cam','spec','mcs','radar'],slot={cam:-.75,spec:-.3,mcs:.15,radar:.6};
+    list.forEach(k=>{const p=instPart(k);p.scale.setScalar(.75);p.position.set(0,-.28,slot[k]);if(k==='radar')p.rotation.y=0;if(o.grey)p.traverse(m=>{if(m.isMesh)m.material=dullMat(m.material);});g.add(p);parts[k]=p;});
+    const fl=sprite(0xffb060);fl.position.z=GLB.aft-.55;fl.scale.set(1.3,1.3,1);fl.visible=false;g.add(fl);
+    const lamp=new T3.Mesh(new T3.SphereGeometry(.09,10,8),new T3.MeshBasicMaterial({color:0xff4030}));lamp.position.set(0,.75,-.55);lamp.visible=!!o.grey;g.add(lamp);
+    Object.assign(g.userData,{flame:fl,lamp,parts,rad:GLB.rad,glb:true});}
   function craft(o={}){
+    const g=new T3.Group();
+    if(GLB.state===2){glbCraft(g,o);return g;}
+    const p=procCraft(o);g.add(p);Object.assign(g.userData,p.userData);
+    if(GLB.state!==3)loadGLB(okk=>{if(!okk)return;const f=g.userData.flame,l=g.userData.lamp,fv=f.visible,lv=l.visible;
+      g.remove(p);p.traverse(m=>{if(m.geometry&&!m.geometry.userData.shared)m.geometry.dispose();});glbCraft(g,o);g.userData.flame.visible=fv;g.userData.lamp.visible=lv;
+      if(g.userData.onSwap)g.userData.onSwap();});
+    return g;}
+
+  /* ---------- the spacecraft. o: {wing,dish,inst[],structure,engine,thermal,battery,red,prop,grey} ---------- */
+  function procCraft(o={}){
     const g=new T3.Group(),st=o.structure??1,eng=o.engine??1,th=o.thermal??1;
     g.add(M(box(1,1.25,1),'foil'));
     /* structure: what the frame looks like */
@@ -234,10 +293,14 @@ const Models=(()=>{
       const scene=new T3.Scene(),cam=new T3.PerspectiveCamera(32,1,.1,200),pivot=new T3.Group(),sun=lights(scene,kind==='mars'?[-7,2.5,3.2]:[-4,6,6]);if(kind==='mars')sun.intensity=1.9;scene.add(pivot);
       const v={canvas,scene,cam,pivot,kind,cfg,yaw:cfg.yaw??.6,pitch:cfg.pitch??.32,spin:cfg.spin??.25,hold:0,model:null,ctx:canvas.getContext('2d')};
       canvas.style.aspectRatio=(cfg.w||4)+'/'+(cfg.h||3);canvas.style.width='100%';canvas.style.display='block';
-      v.set=(no)=>{const key=JSON.stringify(no||{});if(key===v.key)return;v.key=key;if(v.model){pivot.remove(v.model);v.model.traverse(m=>{if(m.geometry)m.geometry.dispose();});}v.model=build(kind,no||{});pivot.add(v.model);
+      const fit=()=>{if(kind==='mars'){v.rad=1.12;return;}
+        if(v.model.userData.rad){v.rad=v.model.userData.rad;v.cy=0;return;}
+        const b=new T3.Box3().setFromObject(v.model),s=b.getBoundingSphere(new T3.Sphere());v.rad=s.radius*(kind==='craft'?.68:.95);v.cy=kind==='craft'?0:s.center.y;};
+      v.set=(no)=>{const key=JSON.stringify(no||{});if(key===v.key)return;v.key=key;if(v.model){pivot.remove(v.model);v.model.traverse(m=>{if(m.geometry&&!m.geometry.userData.shared)m.geometry.dispose();});}v.model=build(kind,no||{});pivot.add(v.model);
         if(kind==='rocket')v.model.position.y=-1.15;
-        if(kind==='mars'){v.model.rotation.z=.2;v.model.userData.sun.copy(sun.position).normalize();v.rad=1.12;}
-        else{const b=new T3.Box3().setFromObject(v.model),s=b.getBoundingSphere(new T3.Sphere());v.rad=s.radius*(kind==='craft'?.68:.95);v.cy=kind==='craft'?0:s.center.y;}};
+        if(kind==='mars'){v.model.rotation.z=.2;v.model.userData.sun.copy(sun.position).normalize();}
+        if(kind==='craft')v.model.userData.onSwap=fit;
+        fit();};
       v.set(o);
       if(cfg.drag!==false){canvas.style.cursor='grab';canvas.style.touchAction='pan-y';let px=0,py=0,on=false;
         canvas.addEventListener('pointerdown',e=>{on=true;px=e.clientX;py=e.clientY;v.hold=1e9;try{canvas.setPointerCapture(e.pointerId);}catch(_){}});
@@ -262,5 +325,5 @@ const Models=(()=>{
     requestAnimationFrame(loop);}
 
   const use=fn=>(...a)=>{T3=T3||window.THREE;return fn(...a);};
-  return {view,craft:use(craft),rocket:use(rocket),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
+  return {view,craft:use(craft),rocket:use(rocket),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},preload:()=>loadGLB(),get craftSource(){return ['none','loading','model file','built-in'][GLB.state]},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
 })();

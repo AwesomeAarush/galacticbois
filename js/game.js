@@ -266,7 +266,9 @@ function drawGlobe(c){
 /* ============ story, coaching and glossary ============ */
 const WHO={reyes:['Flight Director Imani Reyes','IR'],lind:['Dr. Tomas Lindqvist, science lead','TL'],park:['Jun “Bolt” Park, systems engineer','JP']};
 function say(w,text){return `<div class="say"><span class="av" aria-hidden="true">${WHO[w][1]}</span><div><p class="kicker">${WHO[w][0]}</p><p>${text}</p></div></div>`;}
-function coach(steps){return `<section class="coach"><p class="kicker">What to do here</p><ol>${steps.map(x=>`<li>${x}</li>`).join('')}</ol></section>`;}
+let coachOpen=true;
+function coach(steps){return `<details class="coach" ${coachOpen?'open':''} ontoggle="window.__coach&&window.__coach(this.open)"><summary class="kicker">What to do here</summary><ol>${steps.map(x=>`<li>${x}</li>`).join('')}</ol></details>`;}
+window.__coach=v=>{coachOpen=v;};
 const TERMS={
   deltav:['Delta-v','The total change in speed a spacecraft can make with its engine. Think of it as the fuel gauge of a mission, measured in metres per second. Every manoeuvre spends some.'],
   isp:['Specific impulse (Isp)','How efficiently an engine uses propellant, like kilometres per litre for a car. Higher is better.'],
@@ -427,7 +429,7 @@ VIEW.design=()=>{
   ${teach('Spacecraft subsystems, power budgets, mass budgets, propellant management, redundancy, engineering trade-offs.')}
   ${navRow(true,'review','Send to review')}`;
   $('readout').innerHTML=`<p class="kicker">Your spacecraft · live 3D model</p><div class="cvwrap"><canvas id="craft"></canvas><span class="hint3">Drag to turn it</span></div>
-    <p class="dim" style="font-size:.82rem">The model changes as you build: panels, dish, tanks, engine and each instrument (coloured rings).</p><div id="rbody" class="grid" style="gap:12px"></div>`;
+    <p class="dim" style="font-size:.82rem">Drag to look around. The instruments you fit appear under the main bridge, each with its coloured ring.</p><div id="rbody" class="grid" style="gap:12px"></div>`;
   const cview=view3('craft','craft',craftOpts(),{w:3,h:2,spin:.3,yaw:.7,pitch:.38});
   const upd=()=>{const d=design(),p=plan(),bad=checks().filter(x=>x.crit&&!x.ok);$('propLab').textContent=`${S.prop} kg · ${f1(S.prop*.02)}M`;
     $('rbody').innerHTML=`
@@ -454,7 +456,7 @@ VIEW.review=()=>{
   main.innerHTML=head(5,'Technical review','Launch Readiness Board',fails?`The board found ${fails} critical problem${fails>1?'s':''}. Each one comes with a suggested fix.`:'Every critical check passes. Cautions will not stop the launch, but they show where the mission is likely to hurt.')+say('reyes',fails?'No-go items are not opinions. Fix them and come back.':`The board has no objections, and neither do I. Take ${S.name} to the pad.`)+`
   <section class="grid g2"><div class="panel"><p class="kicker">Critical checks</p>${crit.map(row).join('')}</div>
   <div class="panel"><p class="kicker">Cautions</p>${c.filter(x=>!x.crit).map(row).join('')}
-    <div class="grid g2" id="pad3"><div><p class="kicker">${S.name}</p><div class="cvwrap"><canvas id="rvCraft"></canvas></div></div><div><p class="kicker">Launch vehicle</p><div class="cvwrap"><canvas id="rvRocket"></canvas></div></div></div>
+    <div class="pair" id="pad3"><div><p class="kicker">${S.name}</p><div class="cvwrap"><canvas id="rvCraft"></canvas></div></div><div><p class="kicker">Launch vehicle</p><div class="cvwrap"><canvas id="rvRocket"></canvas></div></div></div>
     ${teach('Engineering requirements, margins and redundancy. Real missions hold reviews like this at every design stage.')}
     <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button></div></div></section>
   ${navRow(true,'cruise','Launch',fails>0,fails?'Launch is blocked':'')}`;
@@ -900,6 +902,9 @@ function start(data){
   if(data&&data.stage){S=data;RUN++;chrome();VIEW[S.stage]();}
   else go('title');
 }
+/* back-to-top button: appears once the page has been scrolled a screen down */
+{const tb=$('topBtn');if(tb){const sh=()=>tb.classList.toggle('show',scrollY>innerHeight*.6);addEventListener('scroll',sh,{passive:true});sh();
+  tb.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}}
 window.__game={get S(){return S},DEMO,go,plan,design,checks,bestDep};
 window.claude?.hot?.snapshot?.(()=>S);
 if(window.claude?.hot?.ready)window.claude.hot.ready(()=>start(window.claude.hot.data??{}));else start({});
