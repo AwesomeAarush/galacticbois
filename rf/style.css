@@ -413,3 +413,5 @@ main.enter>*:nth-child(2){animation-delay:.08s}main.enter>*:nth-child(3){animati
 /* live 3D views */
 .i3{width:100%;display:block;pointer-events:none;margin-bottom:4px;border-bottom:1px solid var(--line)}
 .hint3{position:absolute;right:8px;bottom:6px;font:400 .66rem/1 "Martian Mono",monospace;color:var(--dim,#a39686);letter-spacing:.04em;text-transform:uppercase;pointer-events:none}
+
+main{transition:opacity .26s ease,transform .26s ease}main.leave{opacity:0;transform:translateY(-6px)}

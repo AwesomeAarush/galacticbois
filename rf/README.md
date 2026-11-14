@@ -52,3 +52,12 @@ leave the build command empty, and deploy.
 - Mission segments, concept of operations, the six-step design process and "requirements with verification" in the briefing, review and notebook follow NASA's "Design and Develop Science Missions" webinar (Access to Space for All systems-engineering series, 26 March 2025).
 - The review board and debrief can export the flight plan as a script for GMAT, NASA's open-source General Mission Analysis Tool (https://sourceforge.net/projects/gmat/). The script is an untargeted starting point and has not been run in GMAT.
 - The spacecraft model is assets/spacecraft_3d.glb.
+
+## Changes in this revision
+
+- three.js is now bundled in `vendor/three.min.js` (no CDN needed).
+- Instruments come only from step 2; the build step lists the chosen ones.
+- Delta-v rebalanced: every transfer and orbit combination, including Fast transfer with Direct to 300 km, can pass review. Fast transfer uses a larger launch vehicle (1,600 kg).
+- Flyby and capture cutscenes keep the spacecraft well clear of Mars.
+- Smooth fade between stages.
+- New major events: solar storm, toilet leak (1 in 10 flights), instrument switches, deadly rock. Failing any of them ends the mission. Replay them from Demo controls.

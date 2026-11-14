@@ -64,10 +64,10 @@ const Cine=(()=>{
     arrival(u,s){show(mars,craft);mars.scale.setScalar(12);mars.position.set(3.5,-1,-48+u*25);mars.rotation.set(.2,.5+s*.02,0);
       craft.position.set(-1.5,-.5,0);craft.rotation.set(.1,2.7+s*.03,.05);cam.position.set(1.3,.9,6.6-u);cam.lookAt(.8,-.3,-10);},
     capture(u,s){show(mars,craft);mars.scale.setScalar(10);mars.position.set(0,0,0);mars.rotation.set(.15,s*.015,0);
-      const p=-1.15-u*3.75;craft.scale.setScalar(1.5);craft.position.set(13*Math.sin(p),.9,13*Math.cos(p));craft.rotation.set(.15,p-Math.PI/2,0);flame(craft,u<.4);
+      const p=-1.15-u*3.75;craft.scale.setScalar(.35);craft.position.set(11.8*Math.sin(p),.9,11.8*Math.cos(p));craft.rotation.set(.15,p-Math.PI/2,0);flame(craft,u<.4);
       cam.position.set(0,6,28);cam.lookAt(0,0,0);},
     flyby(u,s){show(mars,craft);mars.scale.setScalar(10);mars.position.set(0,0,0);mars.rotation.set(.15,s*.015,0);
-      craft.scale.setScalar(1.5-u*1.15);craft.position.set(-12+u*30,.9+u*9,8+u*5);craft.rotation.set(s*.25,s*.18,0);flame(craft,u<.12);
+      const r=20+u*u*22,th=Math.PI*(1.15-u*.75);craft.scale.setScalar(.45-u*.3);craft.position.set(r*Math.cos(th)+0,3+u*8,20+u*u*22*.4);craft.rotation.set(.2,-th,0);flame(craft,u<.12);
       cam.position.set(0,6,28);cam.lookAt(craft.position.x*.35,craft.position.y*.5,0);},
     aerobrake(u,s,o,dt){show(mars,craft,glow,parts);mars.scale.setScalar(30);mars.position.set(0,-31.3,0);mars.rotation.set(0,0,s*.025);
       craft.position.set(0,Math.sin(s*9)*.03,0);craft.rotation.set(0,Math.PI/2,.12);

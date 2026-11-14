@@ -5,6 +5,7 @@ const VE=Math.sqrt(MU/AU), VM=Math.sqrt(MU/(RM*AU)), NE=0.9856474, NM=0.5240208;
 const MU_M=42828.4, R_MARS=3389.5, C_KMS=299792.458;
 const BASE=Date.UTC(2028,5,1), DAY=864e5;
 const MASS_CAP=1200, BUDGET=180;
+const capFor=()=>S.transfer==='fast'?1600:MASS_CAP;
 const rad=x=>x*Math.PI/180, deg=x=>x*180/Math.PI;
 const wrap=a=>((a+180)%360+360)%360-180;
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -61,7 +62,7 @@ const SYS={
     {n:'Passive blankets',mass:15,cost:3,power:0,rel:.93,s:'calibration −8%'},{n:'Heaters and louvres',mass:30,cost:6,power:25,rel:.97},{n:'Active fluid loop',mass:45,cost:11,power:40,rel:.99}]}
 };
 const TR={hohmann:{n:'Hohmann transfer',Q:RM,cost:0,d:'Minimum energy. Leaves Earth’s orbit on a tangent and arrives half an orbit later.'},
-          fast:{n:'Fast transfer',Q:1.56,cost:8,d:'A bigger launch vehicle (+8M) throws you harder. Shorter cruise, but you arrive faster and must brake more.'}};
+          fast:{n:'Fast transfer',Q:1.56,cost:8,d:'A bigger launch vehicle (+8M, carries up to 1,600 kg) throws you harder. Shorter cruise, but you arrive faster and must brake more.'}};
 const ORB={aero:{n:'Low orbit by aerobraking',d:'Capture into a long ellipse, then skim the upper atmosphere for months to shrink it. Cheap on propellant, costs one observation pass.',passes:9,q:1},
            ellip:{n:'Stay in the capture ellipse',d:'Same small burn, no aerobraking. You are far from the surface most of the time, so data quality drops 40%.',passes:10,q:.6},
            direct:{n:'Direct to 300 km circular',d:'One large burn straight into the science orbit. Full quality from day one, very propellant-hungry.',passes:10,q:1}};
@@ -107,7 +108,7 @@ const NB=[
 ];
 
 /* ============ state ============ */
-function fresh(){return {stage:'title',max:0,inst:{cam:true,spec:true,mcs:true,radar:true},
+function fresh(){return {stage:'title',max:0,inst:{cam:false,spec:false,mcs:false,radar:false},
   sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},red:false,prop:250,
   dep:0,transfer:'hohmann',orbit:'aero',P:[],log:[],aura:0,health:0,retries:0,loose:0,fail:[],degr:1,calib:1,name:'Wayfarer',guided:true,quiz:{},bolts:0};}
 let S=fresh(), RUN=0, DEMO={k:1};
@@ -118,7 +119,7 @@ const main=$('main');
 function plan(){
   const tr=transfer(TR[S.transfer].Q), d=S.dep;
   const miss=wrap(Lm(d)+NM*tr.T-(Le(d)+deg(tr.nu)));
-  const pen=25*miss*miss;
+  const pen=8*miss*miss;
   const rp=R_MARS+300, vh=Math.sqrt(tr.vinf**2+2*MU_M/rp), ae=(rp+R_MARS+45000)/2;
   const vell=Math.sqrt(MU_M*(2/rp-1/ae)), vc=Math.sqrt(MU_M/rp), vesc=Math.sqrt(2*MU_M/rp);
   const vt=S.orbit==='direct'?vc:vell, moi=(vh-vt)*1000;
@@ -145,7 +146,7 @@ function design(){
 function checks(){
   const d=design(),p=plan(),c=[];
   const add=(name,ok,detail,crit=true)=>c.push({name,ok,detail,crit});
-  add('Mass below 1,200 kg',d.wet<=MASS_CAP,`${f0(d.wet)} kg launch mass`);
+  add(`Mass below ${f0(capFor())} kg`,d.wet<=capFor(),`${f0(d.wet)} kg launch mass`);
   add('Cost within 180M credits',d.cost<=BUDGET,`${f1(d.cost)}M committed`);
   add('Trajectory reaches Mars',p.feasible,p.feasible?`Arrival error ${f1(Math.abs(p.miss))}° costs ${f0(p.pen)} m/s to correct`:`Mars is ${f1(Math.abs(p.miss))}° away from your arrival point. Change the departure date.`);
   add('Sufficient power generation',d.genM>=d.bus+d.maxInst,`${f0(d.genM)} W at Mars against ${f0(d.bus)} W for the spacecraft plus ${f0(d.maxInst)} W for the largest instrument`);
@@ -188,7 +189,7 @@ function chrome(){
   $('track').innerHTML=S.stage==='title'?'':TRACK.map((t,j)=>`<li class="${j<i?'done':j===i?'now':''}"${j===i?' aria-current="step"':''}>${j+1} ${t[1]}</li>`).join('');
   let h='';
   if(['science','planning','design','review'].includes(S.stage)){const d=design();
-    h=`<span class="chip ${d.wet>MASS_CAP?'over':''}">${f0(d.wet)} / 1,200 kg</span><span class="chip ${d.cost>BUDGET?'over':''}">${f1(d.cost)} / 180M</span>`;}
+    h=`<span class="chip ${d.wet>capFor()?'over':''}">${f0(d.wet)} / ${f0(capFor())} kg</span><span class="chip ${d.cost>BUDGET?'over':''}">${f1(d.cost)} / 180M</span>`;}
   else if(['cruise','moi','ops'].includes(S.stage))h=`<span class="chip">Health ${f0(S.health)}%</span><span class="chip">Propellant ${f0(S.prop)} kg</span><span class="chip">Aura ${f0(S.aura)}</span>`;
   $('hstats').innerHTML=h;
 }
@@ -209,9 +210,10 @@ function typeIn(){if(calm()||DEMO.k<.2)return;main.querySelectorAll('.say p:not(
   const tick=now=>{if(my!==RUN||!el.isConnected)return;if(!t0)t0=now;const n=Math.min(full.length,Math.ceil((now-t0)/dur*full.length));
     if(n>=full.length){el.textContent=full;return;}el.innerHTML=esc(full.slice(0,n))+`<span style="visibility:hidden">${esc(full.slice(n))}</span>`;requestAnimationFrame(tick);};
   el.innerHTML=`<span style="visibility:hidden">${esc(full)}</span>`;setTimeout(()=>requestAnimationFrame(tick),(LOC[S.stage]?1150:200)*DEMO.k);});}
-function go(stage){const changed=S.stage!==stage;RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
-  if(changed)locCard(stage);VIEW[stage]();
-  if(changed){main.classList.remove('enter');void main.offsetWidth;main.classList.add('enter');typeIn();}}
+function go(stage){const changed=S.stage!==stage,my=++RUN;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();setScene(stage);
+  const show=()=>{if(my!==RUN)return;window.scrollTo(0,0);if(changed)locCard(stage);VIEW[stage]();
+    if(changed){main.classList.remove('leave','enter');void main.offsetWidth;main.classList.add('enter');typeIn();}};
+  if(changed&&!calm()&&DEMO.k>=.2&&main.innerHTML){main.classList.add('leave');setTimeout(show,260*DEMO.k);}else show();}
 function navRow(back,next,label,disabled,note){return `<div class="nav"><button class="ghost" id="back">${back?'Back':'Main menu'}</button><div class="row">${note?`<span class="dim">${note}</span>`:''}<button class="btn" id="next" ${disabled?'disabled':''}>${label}</button></div></div>`;}
 function bindNav(back,next){$('back').onclick=()=>go(back||'title');$('next').onclick=()=>go(next);}
 
@@ -314,9 +316,9 @@ async function quiz(id,q,opts,correct,why){
   S.quiz[id]=r===correct;await tell(r===correct?'Correct':'Not quite',r===correct?'That’s right':'Here’s the idea',`<p>${why}</p>`);
 }
 const PRE={
-  lean:{n:'Lean scout',d:'Cheap and light. Camera, profiler and radar.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:0},inst:{cam:true,spec:false,mcs:true,radar:true},prop:300,red:false},
-  bal:{n:'Balanced orbiter',d:'All four instruments on mid-range systems.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},inst:{cam:true,spec:true,mcs:true,radar:true},prop:340,red:false},
-  tough:{n:'Tough survivor',d:'Reinforced, redundant and autonomous. No camera.',sel:{structure:2,power:1,battery:1,comms:1,engine:1,computer:2,thermal:1},inst:{cam:false,spec:true,mcs:true,radar:true},prop:380,red:true}
+  lean:{n:'Lean scout',d:'Cheap and light systems. Instruments are the ones you chose.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:0},prop:300,red:false},
+  bal:{n:'Balanced orbiter',d:'Mid-range systems throughout.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},prop:340,red:false},
+  tough:{n:'Tough survivor',d:'Reinforced, redundant and autonomous.',sel:{structure:2,power:1,battery:1,comms:1,engine:1,computer:2,thermal:1},prop:380,red:true}
 };
 function answered(){const o=S.ops,d=(r,k)=>(o.sci[r+k]||0)>0,R3=['jezero','valles','polar'];return {q1:R3.some(r=>d(r,'spec')),q2:R3.some(r=>d(r,'mcs')),q3:d('polar','radar')};}
 function qTrack(){const a=answered(),row=(ok,q,need)=>`<li><span class="pill ${ok?'go':'warn'}">${ok?'Answered':'Open'}</span> <b>${q}</b> <span class="dim">${need}</span></li>`;
@@ -458,10 +460,10 @@ VIEW.design=()=>{
       <div class="opts">${Object.keys(PRE).map(k=>`<button class="opt" data-pre="${k}"><b>${PRE[k].n}</b><span class="s">${PRE[k].d}</span></button>`).join('')}</div></div>
     ${Object.keys(SYS).map(k=>`<div class="sys"><div class="lab"><b>${SYS[k].label}</b><span class="dim" style="font-size:.85rem;max-width:52ch">${SYS[k].why}</span></div>
       <div class="opts">${SYS[k].tiers.map((t,i)=>`<button class="opt" data-sys="${k}" data-i="${i}" aria-pressed="${S.sel[k]===i}"><b>${t.n}</b><span class="s">${tierStat(k,t)}</span></button>`).join('')}</div></div>`).join('')}
-    <div class="sys"><div class="lab"><b>Propellant</b><span class="num" id="propLab"></span></div><input type="range" id="prop" min="100" max="700" step="10" value="${S.prop}" aria-label="Propellant load"></div>
+    <div class="sys"><div class="lab"><b>Propellant</b><span class="num" id="propLab"></span></div><input type="range" id="prop" min="100" max="1100" step="10" value="${S.prop}" aria-label="Propellant load"></div>
     <div class="sys"><div class="lab"><b>Redundancy</b><span class="dim" style="font-size:.85rem">Spare computer, valves and heaters</span></div>
       <div class="opts"><button class="opt" id="red" aria-pressed="${S.red}"><b>Redundant critical components</b><span class="s">+45 kg · +12M · halves failure risk</span></button></div></div>
-    <div class="sys"><div class="lab"><b>Scientific instruments</b></div><div class="opts">${IK.map(k=>`<button class="opt" data-inst="${k}" aria-pressed="${S.inst[k]}"><b>${INST[k].name}</b><span class="s">${INST[k].mass} kg · ${INST[k].cost}M · ${INST[k].power} W · ${INST[k].data} Gb</span></button>`).join('')}</div></div>
+    <div class="sys"><div class="lab"><b>Scientific instruments (from step 2)</b></div><div class="opts">${IK.filter(k=>S.inst[k]).map(k=>`<div class="opt" aria-disabled="true"><b>${INST[k].name}</b><span class="s">${INST[k].mass} kg · ${INST[k].cost}M · ${INST[k].power} W · ${INST[k].data} Gb</span></div>`).join('')||'<p class="dim">None chosen. Go back to step 2.</p>'}<p class="dim" style="font-size:.82rem">Only instruments you chose in step 2 are fitted. Change them there.</p></div></div>
   </div><div class="panel sticky" id="readout"></div></section>
   ${teach('Spacecraft subsystems, power budgets, mass budgets, propellant management, redundancy, engineering trade-offs.')}
   ${navRow(true,'review','Send to review')}`;
@@ -471,7 +473,7 @@ VIEW.design=()=>{
   const upd=()=>{const d=design(),p=plan(),bad=checks().filter(x=>x.crit&&!x.ok);$('propLab').textContent=`${S.prop} kg · ${f1(S.prop*.02)}M`;
     $('rbody').innerHTML=`
       ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Not ready for review</p><ul class="plain">${bad.map(x=>`<li><b>${x.name}.</b> ${x.fix}</li>`).join('')}</ul></div>`:'<div class="issues ok"><p class="kicker" style="color:var(--good)">Ready for review</p><p>Every critical check passes.</p></div>'}
-      ${meter('Launch mass',d.wet,MASS_CAP,'kg')}${meter('Cost',d.cost,BUDGET,'M')}
+      ${meter('Launch mass',d.wet,capFor(),'kg')}${meter('Cost',d.cost,BUDGET,'M')}
       ${meter('Power, all instruments on',d.bus+d.instP,d.genM,'W')}
       ${meter('Speed change needed / available',p.need,d.dv,'m/s',p.need>d.dv?'over':p.need*1.1>d.dv?'warn':'ok')}
       ${meter('Data per full pass',d.dataPass,d.store,'Gb storage')}
@@ -480,8 +482,7 @@ VIEW.design=()=>{
       <tr><th>Downlink</th><td class="num">${d.down} Gb per pass</td></tr><tr><th>Estimated reliability</th><td class="num">${f1(d.rel*100)}%</td></tr></table></div>`;
     if(cview)cview.set(craftOpts());else{const c=cv('craft',300,200);c.ctx.clearRect(0,0,300,200);drawCraft(c.ctx,150,105,1.5,{wing:S.sel.power,dish:S.sel.comms,inst:d.on});}chrome();};
   main.querySelectorAll('[data-sys]').forEach(b=>b.onclick=()=>{S.sel[b.dataset.sys]=+b.dataset.i;main.querySelectorAll(`[data-sys="${b.dataset.sys}"]`).forEach(x=>x.setAttribute('aria-pressed',x===b));upd();});
-  main.querySelectorAll('[data-inst]').forEach(b=>b.onclick=()=>{const k=b.dataset.inst;S.inst[k]=!S.inst[k];b.setAttribute('aria-pressed',S.inst[k]);upd();});
-  main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.inst={...p.inst};S.prop=p.prop;S.red=p.red;VIEW.design();});
+    main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.prop=p.prop;S.red=p.red;VIEW.design();});
   $('red').onclick=()=>{S.red=!S.red;$('red').setAttribute('aria-pressed',S.red);upd();};
   $('prop').oninput=e=>{S.prop=+e.target.value;upd();};
   upd();bindNav('planning','review');
@@ -507,7 +508,7 @@ async function launch(){
   S.fl={dep:S.dep,tr:p.tr,vh:p.vh,vt:p.vt,vc:p.vc,vesc:p.vesc,pen:p.pen,need:p.need,light:p.light,orbit:S.orbit,prop0:S.prop,wet0:d.wet,cost:d.cost,
     isp:tier('engine').isp,auto:tier('computer').auto,genM:d.genM,bus:d.bus,store:d.store,down:d.down,wh:d.wh,rel:d.rel,on:d.on};
   S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?.92:1;
-  S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{}};
+  S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{},toilet:Math.random()<.1};
   lg(`Launched ${dateStr(S.dep)} on a ${TR[S.transfer].n}, ${f0(d.wet)} kg, ${f1(d.cost)}M.`);
   const my=++RUN;
   await Cine.play('launch',{count:true,min:11,lines:[{who:'reyes',text:`${S.name}, you are go for launch.`},{who:'park',text:'Four thousand two hundred and twelve bolts. I counted twice.'},{text:'The rocket has one job: throw the spacecraft onto its path to Mars.'}]});
@@ -547,6 +548,10 @@ VIEW.cruise=()=>{
       if(!ev.comm&&fr>=.25){ev.comm=1;await evComm();}
       else if(!ev.main&&fr>=.5){ev.main=1;const q=await evOffCourse();if(my!==RUN)return;await auraScene(q);}
       else if(!ev.power&&fr>=.75){ev.power=1;await evPower();}
+      else if(!ev.storm&&fr>=.12){ev.storm=1;await evStorm();}
+      else if(!ev.malf&&fr>=.38){ev.malf=1;await evLevers();}
+      else if(S.cr.toilet&&!ev.wc&&fr>=.62){ev.wc=1;await evToilet();}
+      else if(!ev.rock&&fr>=.88){ev.rock=1;await evRock();}
       else await rollRandom(S.cr.v);
       if(my!==RUN)return;upd();
       if(S.dead)return go('debrief');
@@ -624,6 +629,63 @@ async function evPower(){
   await tell('Outcome',got>=7?'Power stable':'Brownout',`<p>${msg}</p>${teach('Solar irradiance, the inverse-square law, power management, energy storage.')}`);
   if(S.quiz.sun===undefined)await quiz('sun','A spacecraft moves twice as far from the Sun. How much sunlight now reaches its solar arrays?',['Half as much','A quarter as much','The same amount'],1,'Light spreads over an area that grows with the square of the distance: 2 × 2 = 4 times the area, so a quarter of the power. This is the inverse-square law.');
 }
+
+
+/* ---------- major events: fail and the crew is lost ---------- */
+function miniGame({kicker,title,intro,build,secs}){return new Promise(res=>{
+  const o=document.createElement('div');o.className='overlay';let left=secs||0,done=false,iv;
+  o.innerHTML=`<div class="modal alert" role="dialog" aria-modal="true" style="max-width:760px"><p class="kicker">${kicker}</p><h3>${title}</h3><p>${intro}</p><div id="mg"></div>${secs?'<div id="mgT"></div>':''}</div>`;
+  document.body.appendChild(o);SFX.alarm();
+  const fin=ok=>{if(done)return;done=true;clearInterval(iv);o.remove();res(ok);};
+  const tick=()=>{if(secs)o.querySelector('#mgT').innerHTML=meter('Time left',left,secs,'s',left<8?'over':'warn');};
+  build(o.querySelector('#mg'),fin);tick();
+  if(secs)iv=setInterval(()=>{left--;if(left<=0)fin(false);else tick();},1000*DEMO.k);});}
+async function lose(name,why){S.dead=true;S.health=0;S.fail.push(why);pt(name,0,10);lg(name+': '+why);
+  await Cine.play('explosion',{big:'Crew lost',bigAt:.3,min:6,lines:[{text:why}]});
+  await tell('Mission lost',name,`<p>${why}</p><p class="dim">Major events are all or nothing. Read the log and fly again.</p>`,'Go to debrief');}
+async function won(name,msg){pt(name,10,10);lg(name+': '+msg);await tell('Outcome',name+' handled',`<p>${msg}</p>`);}
+
+async function evStorm(){
+  const R=rng(Date.now()&0xffff),vals=[['Sleeping quarters',2],['Command deck',3],['Water tank bay',9+(R()*3|0)],['Equipment bay',5],['Toilet cabinet',1]].sort(()=>R()-.5);
+  const best=Math.max(...vals.map(v=>v[1]));
+  const ok=await miniGame({kicker:'Major event · solar storm',title:'Solar storm: find the shelter',secs:S.guided?40:20,
+    intro:'A flare is sending high-energy protons at the ship. Dense material absorbs them, so the best shelter is the room with the most shielding, measured in g/cm² of material around it. Pick it before the storm arrives.',
+    build:(el,fin)=>{el.innerHTML=`<div class="choices">${vals.map((v,i)=>`<button class="choice" data-i="${i}"><b>${v[0]}</b><span>Shielding ${v[1]} g/cm²</span></button>`).join('')}</div>`;
+      el.onclick=e=>{const b=e.target.closest('.choice');if(b)fin(vals[+b.dataset.i][1]===best);};}});
+  if(!ok)return lose('Solar storm','The crew sheltered in the wrong room and took a lethal radiation dose.');
+  await won('Solar storm','The crew rode out the storm behind the thickest shielding. Water and propellant make good walls.');}
+
+async function evToilet(){
+  const F=40+(Math.random()*60|0)*5,A=2+(Math.random()*6|0),P=F/A*10,need=Math.round(P/25);
+  const ok=await miniGame({kicker:'Major event · plumbing',title:'The toilet is leaking',
+    intro:`A line is spraying water. Pressure = force ÷ area. The pump pushes with ${F} N through a ${A} cm² fitting, so P = ${F} ÷ ${A} × 10 = ${f0(P)} kPa. Each turn of the bolt holds back 25 kPa. Turn it exactly ${'<b>P ÷ 25</b>'} times, rounded. One turn too many is tolerated. Two or more cracks the fitting.`,
+    build:(el,fin)=>{let n=0;el.innerHTML=`<div class="row between"><button class="btn" id="wr">Turn the wrench</button><span class="num" style="font-size:1.6rem">Turns: <b id="wn">0</b></span><button class="ghost" id="wd">Done</button></div><div id="wl"></div>`;
+      el.querySelector('#wr').onclick=()=>{n++;el.querySelector('#wn').textContent=n;};el.querySelector('#wd').onclick=()=>fin(n>=need&&n<=need+1);}});
+  if(!ok)return lose('Toilet explosion','The bolt was not tightened correctly and the pressurised line burst, flooding the avionics.');
+  await won('Toilet explosion','The leak is sealed with the right torque.');}
+
+async function evLevers(){
+  const names=['Heater A','Heater B','Data bus','Star tracker','Cooler','Gimbal','Radio','Valve'],R=rng(Date.now()&0xfffff),on=new Set();
+  while(on.size<4)on.add(R()*8|0);
+  const ok=await miniGame({kicker:'Major event · instrument malfunction',title:'Instrument fault: switch the highlighted controls',secs:S.guided?30:18,
+    intro:'The payload bus is stuck. Flip each control highlighted in green. A wrong switch counts as a strike. Two strikes lose the bus.',
+    build:(el,fin)=>{let strikes=0,hit=new Set();el.innerHTML=`<div class="choices" style="grid-template-columns:repeat(4,1fr)">${names.map((n,i)=>`<button class="choice" data-i="${i}" style="${on.has(i)?'outline:2px solid #86c994;background:rgba(134,201,148,.18)':''}"><b>${n}</b><span>${on.has(i)?'flip':'leave'}</span></button>`).join('')}</div>`;
+      el.onclick=e=>{const b=e.target.closest('.choice');if(!b||b.disabled)return;const i=+b.dataset.i;b.disabled=true;b.style.opacity=.5;
+        if(on.has(i)){hit.add(i);if(hit.size===on.size)fin(true);}else if(++strikes>=2)fin(false);};}});
+  if(!ok)return lose('Instrument malfunction','Wrong switches cascaded into a bus short and the spacecraft lost power.');
+  await won('Instrument malfunction','The payload bus is back online.');}
+
+async function evRock(){
+  const f=S.fl,m=Math.round(S.mass),a=(Math.random()*2-1)*Math.PI,T=600,D=1500,dv=D/T,rx=dv*Math.cos(a),ry=dv*Math.sin(a),F=22;
+  const ok=await miniGame({kicker:'Major event · debris',title:'A rock is on a collision course',secs:S.guided?60:35,
+    intro:`Tracking says a rock will hit in ${T} s. To clear it by ${D} m you need a sideways speed change of <b>${f2(rx)} m/s in x</b> and <b>${f2(ry)} m/s in y</b>. Each thruster gives Δv = F × t ÷ m, with F = ${F} N and m = ${m} kg. Choose burn seconds for each thruster. Net Δv must land within 12% of the target.`,
+    build:(el,fin)=>{const t={px:0,nx:0,py:0,ny:0},L={px:'+x thruster',nx:'−x thruster',py:'+y thruster',ny:'−y thruster'};
+      el.innerHTML=`<div class="grid g2">${Object.keys(t).map(k=>`<label class="kicker">${L[k]} <span class="num" id="v${k}">0 s</span><input type="range" min="0" max="150" value="0" data-k="${k}"></label>`).join('')}</div><div id="mo" class="num"></div><button class="btn" id="go">Fire</button>`;
+      const net=()=>[(t.px-t.nx)*F/m,(t.py-t.ny)*F/m],upd=()=>{const n=net();el.querySelector('#mo').textContent=`Net Δv: ${f2(n[0])} m/s x, ${f2(n[1])} m/s y`;};
+      el.oninput=e=>{const k=e.target.dataset.k;if(!k)return;t[k]=+e.target.value;el.querySelector('#v'+k).textContent=t[k]+' s';upd();};
+      el.querySelector('#go').onclick=()=>{const n=net();fin(Math.hypot(n[0]-rx,n[1]-ry)<=.12*Math.hypot(rx,ry));};upd();}});
+  if(!ok)return lose('Debris strike','The rock punched through the hull. The crew was lost.');
+  burn(6);await won('Debris strike','The ship slid clear. The rock passed with metres to spare.');}
 
 /* ---------- random events ---------- */
 const boltP=v=>SYS.structure.tiers[S.sel.structure].bolt*(1+S.loose*.25)/(6*Math.log(Math.max(v,12))/Math.log(11));
@@ -929,8 +991,8 @@ $('nbBtn').onclick=()=>{const seen=NB.filter(n=>STAGES.indexOf(n[0])<=S.max);
   ask({kicker:`Engineering notebook · ${seen.length} of ${NB.length} entries`,title:'Notebook',body:seen.length?`<div class="tw"><table>${seen.map(n=>`<tr><th style="white-space:nowrap">${n[1]}</th><td>${n[2]}</td></tr>`).join('')}</table></div>`:'<p class="dim">Entries appear as you reach each stage of a mission.</p>',choices:[{label:'Close'}]});};
 $('demoBtn').onclick=async()=>{
   const r=await ask({kicker:'For demos and testing',title:'Demo controls',body:'<p class="dim">Trigger a random event or replay a cutscene. Event results count toward the current mission, except the explosion drill.</p>',choices:[
-    {label:'A bolt fell out',value:'bolt'},{label:'Lights shut off',value:'lights'},{label:'Everything explodes (drill)',value:'boom'},{label:'Replay a cutscene',value:'cine'},{label:'Close',value:'x'}]});
-  if(r==='bolt')evBolt(S.cr&&S.cr.v||24000);if(r==='lights')evLights();if(r==='boom')explode(true);
+    {label:'A bolt fell out',value:'bolt'},{label:'Lights shut off',value:'lights'},{label:'Everything explodes (drill)',value:'boom'},{label:'Solar storm',value:'storm'},{label:'Toilet leak',value:'wc'},{label:'Instrument switches',value:'lev'},{label:'Deadly rock',value:'rock'},{label:'Replay a cutscene',value:'cine'},{label:'Close',value:'x'}]});
+  if(r==='bolt')evBolt(S.cr&&S.cr.v||24000);if(r==='lights')evLights();if(r==='boom')explode(true);if(r==='storm')evStorm();if(r==='wc')evToilet();if(r==='lev')evLevers();if(r==='rock'){S.mass=S.mass||900;S.fl=S.fl||{};evRock();}
   if(r==='cine'){const id=await ask({kicker:'Cutscenes',title:'Replay a cutscene',choices:Cine.scenes().map(x=>({label:x[0].toUpperCase()+x.slice(1),value:x}))});
     if(id==='aura')auraScene({q:2,km:1234});else Cine.play(id,{big:id,bigAt:.5,min:8,col:0x8fc8da,lines:[{text:'Cutscene preview.'}]});}
 };
