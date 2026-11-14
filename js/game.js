@@ -467,7 +467,7 @@ async function launch(){
   const d=design(),p=plan();
   S.fl={dep:S.dep,tr:p.tr,vh:p.vh,vt:p.vt,vc:p.vc,vesc:p.vesc,pen:p.pen,need:p.need,light:p.light,orbit:S.orbit,prop0:S.prop,wet0:d.wet,cost:d.cost,
     isp:tier('engine').isp,auto:tier('computer').auto,genM:d.genM,bus:d.bus,store:d.store,down:d.down,wh:d.wh,rel:d.rel,on:d.on};
-  S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?0.92:1;
+  S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?.92:1;
   S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{}};
   lg(`Launched ${dateStr(S.dep)} on a ${TR[S.transfer].n}, ${f0(d.wet)} kg, ${f1(d.cost)}M.`);
   const my=++RUN;
@@ -633,7 +633,7 @@ VIEW.moi=()=>{
     ${teach('Gravitational capture, orbital insertion, velocity changes, propulsion and delta-v.')}</div></section>`;
   const c=cv('moiC',520,340);
   let p=0,v=f.vh,firing=false,last=performance.now(),started=false;
-  const DUR=S.guided?18:14,rate=(f.vh-f.vt)/4.5,drop=f.vh-f.vt,tol=(S.guided?0.09:0.04)*drop,cx=300,cy=185,rp=74,e=1.6;
+  const DUR=S.guided?18:14,rate=(f.vh-f.vt)/4.5,drop=f.vh-f.vt,tol=(S.guided?.09:.04)*drop,cx=300,cy=185,rp=74,e=1.6;
   const pos=th=>{const r=rp*(1+e)/(1+e*Math.cos(th));return [cx+r*Math.sin(th),cy-r*Math.cos(th)];};
   const fb=$('fire');const begin=()=>{started=true;last=performance.now();fb.textContent='Hold to fire engine';};
   const on=b=>{if(!started){if(b)begin();return;}firing=b;};
@@ -700,7 +700,7 @@ async function finishMoi(v,drop,tol){
 
 /* ---------- science operations ---------- */
 const used=()=>S.ops.store.reduce((s,i)=>s+i.left,0);
-function obsValue(r,k){const o=S.ops,n=(o.cnt[r+k]||0);return 10*REG[r].aff[k]*DIM[Math.min(n,DIM.length-1)]*o.q*S.calib*(o.st[k]==='deg'?0.5:1);}
+function obsValue(r,k){const o=S.ops,n=(o.cnt[r+k]||0);return 10*REG[r].aff[k]*DIM[Math.min(n,DIM.length-1)]*o.q*S.calib*(o.st[k]==='deg'?.5:1);}
 function downlink(cap){const o=S.ops;if(o.mode==='value')o.store.sort((a,b)=>b.val/b.size-a.val/a.size);let sent=0;
   while(cap>1e-9&&o.store.length){const it=o.store[0],t=Math.min(cap,it.left);it.left-=t;cap-=t;sent+=t;
     if(it.left<=1e-9){o.store.shift();o.delivered+=it.val;const key=it.r+it.k;o.sci[key]=(o.sci[key]||0)+it.val;}}return sent;}
@@ -777,7 +777,7 @@ async function evOpp(){
 }
 async function evMal(){
   const f=S.fl,o=S.ops,live=f.on.filter(k=>o.st[k]==='ok');if(!live.length)return;
-  const k=live[Math.random()*live.length|0],p=clamp(.5+.15*f.auto+(S.red?0.2:0),0,.95);
+  const k=live[Math.random()*live.length|0],p=clamp(.5+.15*f.auto+(S.red?.2:0),0,.95);
   const r=await ask({kicker:'Event · equipment malfunction',cls:'alert',title:`${INST[k].name} fault`,body:`<p>The ${INST[k].name.toLowerCase()} is returning corrupted frames. Engineers suspect its detector electronics.</p>`,choices:[
     {label:'Attempt recovery',sub:`Power-cycle and reload its software. ${f0(p*100)}% chance of full recovery, based on your computer and redundancy.`,value:'rec'},
     {label:'Shut it down',sub:'No further risk. The instrument is lost for the rest of the mission.',value:'off'},
@@ -869,12 +869,12 @@ VIEW.debrief=()=>{
     const X=t=>40+(t-130)/120*(w-55),Y=z=>h-28-z/80*(h-45);
     ctx.lineWidth=1.6;ctx.strokeStyle='#8fc8da';ctx.beginPath();for(let z=0;z<=80;z+=2){z?ctx.lineTo(X(T(z,0)),Y(z)):ctx.moveTo(X(T(z,0)),Y(z));}ctx.stroke();
     ctx.setLineDash([4,3]);ctx.beginPath();for(let z=0;z<=80;z+=2){z?ctx.lineTo(X(T(z,1)),Y(z)):ctx.moveTo(X(T(z,1)),Y(z));}ctx.stroke();ctx.setLineDash([]);
-    if(sc.any('mcs')){ctx.fillStyle='#ea6f3c';const d=sc.sci('valles','mcs')>0?0.7:0.1;for(let z=4;z<=78;z+=6){ctx.beginPath();ctx.arc(X(T(z,d)+(R()-.5)*7),Y(z),2.4,0,7);ctx.fill();}}
+    if(sc.any('mcs')){ctx.fillStyle='#ea6f3c';const d=sc.sci('valles','mcs')>0?.7:.1;for(let z=4;z<=78;z+=6){ctx.beginPath();ctx.arc(X(T(z,d)+(R()-.5)*7),Y(z),2.4,0,7);ctx.fill();}}
     legend(ctx,w-205,22,'reference: clear, dashed: dusty',sc.any('mcs')?'your simulated profile':'no profile returned');}
   {const c=cv('cRad',420,210),{ctx,w,h}=c;ctx.fillStyle='#0b0807';ctx.fillRect(0,0,w,h);
     const has=sc.sci('polar','radar')>0,surf=x=>38+Math.sin(x/60)*6+Math.sin(x/17)*2,base=x=>168+Math.sin(x/90)*8;
     for(let x=0;x<w;x+=2)for(let y=30;y<h-10;y+=2){const s=surf(x),b=base(x);let v=R()*.12;
-      if(Math.abs(y-s)<2)v+=.9;else if(y>s&&y<b){const l=Math.sin((y-s)/((b-s)/11)*Math.PI);v+=Math.max(0,l)**6*(has?0.6:0.25);}if(Math.abs(y-b)<2)v+=has?0.7:0.3;
+      if(Math.abs(y-s)<2)v+=.9;else if(y>s&&y<b){const l=Math.sin((y-s)/((b-s)/11)*Math.PI);v+=Math.max(0,l)**6*(has?.6:.25);}if(Math.abs(y-b)<2)v+=has?.7:.3;
       ctx.fillStyle=`rgba(143,200,218,${Math.min(1,v)})`;ctx.fillRect(x,y,2,2);}
     ctx.fillStyle='#efe6d9';ctx.font='10px "Martian Mono",monospace';ctx.fillText('surface',8,24);ctx.fillText('ice and dust layers',8,104);ctx.fillText('base of the ice, about 2 km down',8,h-14);
     ctx.fillStyle='#a39686';ctx.textAlign='right';ctx.fillText(has?'simulated radargram, north polar cap':'reference only: no polar radar returned',w-8,24);ctx.textAlign='left';}
