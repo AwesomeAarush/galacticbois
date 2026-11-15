@@ -133,10 +133,14 @@ In `js/game.js`, `GM` decodes the file. `Le()` and `Lm()` (where Earth and Mars 
 
 ## Race mode
 
-`js/race.js` (`Race`) handles rooms. The host opens a PeerJS peer named `mcb-race-<code>`; guests connect to it. Messages: `hello` (guest joins), `welcome` and `lobby` (host to guests), `start` (host sends the mission, seed and rover site), `prog` (guest to host every 4 s and on each screen change: stage, step, score so far, finished, final score, time), `board` (host to everyone: the leaderboard; `over` when everyone has finished or left).
+`js/race.js` (`Race`) handles rooms. All messages go through a public MQTT relay (tried in order: EMQX, HiveMQ, Mosquitto test broker; `?relay=` or `window.MCB_RELAYS` overrides). Topics for room `CODE`: `mcb-race/v2/CODE/room` (the host's retained room card: host, mission, started; the host's last-will message clears it if the host drops), `.../up` (players to host) and `.../down` (host to players; a `to` field addresses one player).
+
+Messages: `hello` (a player joins or rejoins), `welcome` / `refused` (host to that player), `lobby` (players list), `start` (mission, seed, rover site), `prog` (each player every 4 s and on each screen change: stage, step, score so far, finished, final score, time), `board` (the leaderboard; `over` when everyone has finished or left), `left` and `bye`.
 
 `game.js` provides `__raceStart(mission, seed, site)` and `__raceProgress()`. With `S.race` set, `srnd(key)` gives seeded random numbers for the launch day (`pickWindow`), whether the rare rock and toilet events happen, and the cruise event schedule (`makeSchedule`); Mission 2 uses the seed for the rock formations and the race picks the landing site. Debriefs call `Race.finish()` with the final score. Restart keeps the race seed.
 
-The leaderboard sits bottom right, collapsed to one line until opened. Ranking is final score, then time. A player who refreshes can rejoin with the same call sign (`Race.rejoin()`); if the host leaves, the race ends and everyone's mission carries on solo.
+The leaderboard sits bottom right, collapsed to one line until opened. Ranking is final score, then time. A player who refreshes can rejoin from the title screen with the same call sign. If the host leaves, the race ends and everyone's mission carries on solo.
 
-**Limits.** Browsers must be able to reach unpkg.com and the PeerJS server, and to connect to each other. Very strict networks block direct WebRTC connections; there is no relay (TURN) server. Joining after the start is refused. Small chance events during flight (a bolt working loose, a breaker trip) are each player's own luck.
+Why a relay and not peer to peer: the first version connected browsers directly (WebRTC through PeerJS). On real networks the direct connection often failed after the room was found, so players saw "No answer from that room". A relay only needs an ordinary outgoing WebSocket, which school and home routers allow.
+
+**Limits.** Browsers must reach unpkg.com and at least one of the public relays. The public relays are free test services without guarantees; if all three are down, rooms cannot open. Joining after the start is refused (rejoining with the same call sign is allowed). Small chance events during flight (a bolt working loose, a breaker trip) are each player's own luck.

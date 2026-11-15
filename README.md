@@ -68,10 +68,11 @@ The game itself does not run GMAT; it reads the saved results in `js/gmat_data.j
 ## Race mode
 
 "Race other players" on the title screen. One player creates a room and shares its five-character code; up to five
-others join; the host starts. Everyone flies the same mission with the same seed. Browsers connect directly
-(WebRTC) using PeerJS; the PeerJS library loads from unpkg.com and the free public PeerJS server introduces the
-players. Nothing to deploy for it. To run your own PeerJS server, set `window.MCB_PEER={host,port,path}` in
-`index.html` before `js/race.js`.
+others join; the host starts. Everyone flies the same mission with the same seed. Messages go through a free public
+MQTT relay over a secure WebSocket (broker.emqx.io, then broker.hivemq.com, then test.mosquitto.org); the MQTT
+library loads from unpkg.com. No accounts, keys or server to deploy, and it works through ordinary routers because
+each browser only makes an outgoing connection. Room messages are not private (call signs, stages and scores only).
+To use your own relay, set `window.MCB_RELAYS=['wss://your.broker/mqtt']` in `index.html` before `js/race.js`.
 
 ## Notes
 

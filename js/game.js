@@ -336,7 +336,7 @@ function howTo(i){const d=design(),p=plan(),n=propNeeded(),L=[];let to='design',
 function howHtml(x,i){if(x.ok||!x.crit)return '';const h=howTo(i);if(!h.steps.length)return '';
   return `${Help.q(Help.temp({t:x.name,what:x.detail||x.fix,why:'A critical check. The launch is blocked until it passes.',act:h.steps}))}<button class="ghost mini" data-goto="${h.to}" data-sec="${h.sec}">Go there</button>`;}
 function bindHow(root){root.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>{const sec=b.dataset.sec,to=b.dataset.goto,same=S.stage===to;
-  const jump=()=>{const el=sec&&main.querySelector(`.sys[data-sec="${sec}"]`);if(el){el.scrollIntoView({block:'center',behavior:calm()?'auto':'smooth'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),2600);}};
+  const jump=()=>{if(sec&&window.designTab&&S.stage==='design')designTab(sec);const el=sec&&main.querySelector(`.sys[data-sec="${sec}"]`);if(el){el.scrollIntoView({block:'center',behavior:calm()?'auto':'smooth'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),2600);}};
   if(same)jump();else{go(to);setTimeout(jump,2100*DEMO.k+80);}});}
 const pt=(name,got,max,note)=>S.P.push({name,got,max,note});
 const lg=text=>S.log.push(text);
@@ -554,6 +554,7 @@ VIEW.title=()=>{
     <p class="kicker">ASEA flight operations</p>
     <h1>Mission Control<span>Beyond</span></h1>
     <p class="lede">Scout Mars from orbit. Then land and explore.</p>
+    <p class="dim firsttime">New here? Start with Mission 1 and keep Guided mode on. Every <span class="q" aria-hidden="true" style="display:inline-grid">?</span> explains the thing next to it.</p>
     ${BG?'':'<div class="cvwrap" style="border:0;background:none;max-width:300px"><canvas id="globe"></canvas></div>'}
   </div>
   <div class="panel menu">
@@ -635,21 +636,28 @@ function tierStat(k,t){
 VIEW.design=()=>{
   if(!S.propSet){S.propSet=true;S.prop=propNeeded().load;}
   const d0=design();
-  main.innerHTML=head(3,'Science and build','Spacecraft Assembly Laboratory','Pick what you want to learn. Then build a spacecraft that can do it.')+`
-  <section class="split"><div class="panel">
-    <div class="sys" data-sec="inst"><div class="lab"><b>Step 1 · Payload ${Help.q('payload')}</b><span class="dim">${SLOTS} mounting positions · ${PAYLOAD_KG} kg allocation</span></div>
-      <div class="objm">${OBJM1.map(o=>`<div class="objrow"><div class="row between"><b>${o.q}</b><span class="dim mono">${o.where}</span></div><p class="need">${o.need}</p><ul class="cov plain" data-cov="${o.id}"></ul></div>`).join('')}</div>
-      <div class="icat" id="icat"></div><div id="cmpTray"></div></div>
-    <div class="sys"><div class="lab"><b>Template</b></div>
-      <div class="opts">${Object.keys(PRE).map(k=>`<button type="button" class="opt" data-pre="${k}"><b>${PRE[k].n}</b></button>`).join('')}</div></div>
-    <div class="sys"><div class="lab"><b>Step 2 · Spacecraft systems</b><span class="dim">Match the hardware to the flight plan</span></div></div>
-    ${Object.keys(SYS).map(k=>`<div class="sys" data-sec="${k}"><div class="lab"><b>${SYS[k].label} ${Help.q(Help.temp({t:SYS[k].label,what:SYS[k].why,act:'Heavier tiers do more, but every kilogram needs propellant to stop it at Mars.'}))}</b></div>
-      <div class="opts">${SYS[k].tiers.map((t,i)=>`<button type="button" class="opt" data-sys="${k}" data-i="${i}" aria-pressed="${S.sel[k]===i}"><b>${t.n}</b><span class="s">${tierStat(k,t)}</span></button>`).join('')}</div></div>`).join('')}
-    <div class="sys" data-sec="oxy"><div class="lab"><b>Oxygen for the crew ${Help.q('oxygen')}</b><span class="dim">This trip needs ${Math.ceil(plan().tr.T/7)} weeks · this setting holds ${f1(d0.o2weeks)}</span></div>
-      <div class="opts">${Object.keys(OXY).map(k=>{const o=OXY[k];return `<button type="button" class="opt" data-oxy="${k}" aria-pressed="${S.oxy===k}"><b>${o.n}</b><span class="s">${o.mass} kg · ${money(o.cost)} · ${o.power} W · ${f1(100/o.drain)} weeks</span><span class="dim" style="font-size:.84rem">${o.d}</span></button>`;}).join('')}</div></div>
-    <div class="sys" data-sec="prop"><div class="lab"><b>Propellant ${Help.q('deltav')}</b><span class="num" id="propLab"></span></div><input type="range" id="prop" min="100" max="800" step="10" value="${S.prop}" aria-label="Propellant load"><div class="row"><button type="button" class="ghost" id="autoProp">Auto-load</button><span class="dim" id="propHint" style="font-size:.84rem"></span></div></div>
-    <div class="sys"><div class="lab"><b>Redundancy ${Help.q('redundancy')}</b></div>
-      <div class="opts"><button type="button" class="opt" id="red" aria-pressed="${S.red}"><b>Spare critical parts</b><span class="s">+45 kg · ${money(12)}</span></button></div></div>
+  const sysBlock=k=>`<div class="sys" data-sec="${k}"><div class="lab"><b>${SYS[k].label} ${Help.q(Help.temp({t:SYS[k].label,what:SYS[k].why,act:'Heavier tiers do more, but every kilogram needs propellant to stop it at Mars.'}))}</b></div>
+      <p class="why">${SYS[k].why}</p><div class="opts">${SYS[k].tiers.map((t,i)=>`<button type="button" class="opt" data-sys="${k}" data-i="${i}" aria-pressed="${S.sel[k]===i}"><b>${t.n}</b><span class="s">${tierStat(k,t)}</span></button>`).join('')}</div></div>`;
+  const G={
+    payload:`<div class="sys" data-sec="inst"><div class="lab"><b>Payload ${Help.q('payload')}</b><span class="dim">${SLOTS} mounting positions · ${PAYLOAD_KG} kg allocation</span></div>
+      <details class="objd" ${S.objOpen===false?'':'open'}><summary>What the mission has to measure</summary><div class="objm">${OBJM1.map(o=>`<div class="objrow"><div class="row between"><b>${o.q}</b><span class="dim mono">${o.where}</span></div><p class="need">${o.need}</p><ul class="cov plain" data-cov="${o.id}"></ul></div>`).join('')}</div></details>
+      <div class="icat" id="icat"></div><div id="cmpTray"></div></div>`,
+    power:sysBlock('power')+sysBlock('battery'),
+    prop:sysBlock('engine')+`<div class="sys" data-sec="prop"><div class="lab"><b>Propellant ${Help.q('deltav')}</b><span class="num" id="propLab"></span></div><p class="why">More propellant means more speed change, but it is mass the engine has to push too.</p><input type="range" id="prop" min="100" max="800" step="10" value="${S.prop}" aria-label="Propellant load"><div class="row"><button type="button" class="ghost" id="autoProp">Load what the flight plan needs</button><span class="dim" id="propHint" style="font-size:.84rem"></span></div></div>`,
+    frame:sysBlock('structure')+sysBlock('thermal')+`<div class="sys"><div class="lab"><b>Redundancy ${Help.q('redundancy')}</b></div><p class="why">Spares for the parts most likely to fail. Heavy and costly, but a failure is far less likely to end the mission.</p>
+      <div class="opts"><button type="button" class="opt" id="red" aria-pressed="${S.red}"><b>Spare critical parts</b><span class="s">+45 kg · ${money(12)}</span></button></div></div>`,
+    data:sysBlock('computer')+sysBlock('comms'),
+    crew:`<div class="sys" data-sec="oxy"><div class="lab"><b>Oxygen for the crew ${Help.q('oxygen')}</b><span class="dim" id="oxyLab">This trip needs ${Math.ceil(plan().tr.T/7)} weeks · this setting holds ${f1(d0.o2weeks)}</span></div><p class="why">Three people breathe every day of the flight. Each system trades mass, power and water against how long the air lasts.</p>
+      <div class="opts">${Object.keys(OXY).map(k=>{const o=OXY[k];return `<button type="button" class="opt" data-oxy="${k}" aria-pressed="${S.oxy===k}"><b>${o.n}</b><span class="s">${o.mass} kg · ${money(o.cost)} · ${o.power} W · ${f1(100/o.drain)} weeks</span><span class="dim" style="font-size:.84rem">${o.d}</span></button>`;}).join('')}</div></div>`};
+  const TABS=[['payload','1 Instruments'],['power','2 Power'],['prop','3 Engine and fuel'],['frame','4 Frame and heat'],['data','5 Computer and radio'],['crew','6 Crew air']];
+  S.dtab=TABS.some(t=>t[0]===S.dtab)?S.dtab:'payload';
+  main.innerHTML=head(3,'Science and build','Spacecraft Assembly Laboratory')+`
+  <section class="buildbar"><ol class="flow"><li><b>1</b> Choose instruments</li><li><b>2</b> Work through the tabs</li><li><b>3</b> Clear anything red on the right</li><li><b>4</b> Send to review</li></ol>
+    <div class="row"><span class="dim mono" style="font-size:.6rem">QUICK START</span>${Object.keys(PRE).map(k=>`<button type="button" class="ghost sm" data-pre="${k}" title="${PRE[k].d}">${PRE[k].n}</button>`).join('')}</div></section>
+  <section class="split build"><div class="panel dpanel">
+    <div class="tabs" role="tablist">${TABS.map(t=>`<button type="button" role="tab" class="tab" data-dt="${t[0]}" aria-selected="${S.dtab===t[0]}">${t[1]}<i class="tdot" hidden></i></button>`).join('')}</div>
+    <div class="dscroll" id="dscroll">${TABS.map(t=>`<div class="dtab" data-dtab="${t[0]}" ${S.dtab===t[0]?'':'hidden'}>${G[t[0]]}</div>`).join('')}</div>
+    <div class="row between dfoot"><button type="button" class="ghost sm" id="dPrev">‹ Previous</button><span class="dim mono" id="dPos" style="font-size:.6rem"></span><button type="button" class="ghost sm" id="dNext">Next ›</button></div>
   </div><div class="panel sticky" id="readout"></div></section>
   ${navRow(true,'review','Send to review')}`;
   $('readout').innerHTML=`<div class="row between"><p class="kicker">${S.name}</p><span class="pill info" id="modelCap">Drag to turn</span></div><div class="cvwrap"><canvas id="craft"></canvas></div><div id="rbody" class="grid" style="gap:12px"></div>`;
@@ -666,6 +674,16 @@ VIEW.design=()=>{
     main.querySelectorAll('[data-inst]').forEach(b=>b.onclick=()=>{const k=b.dataset.inst;S.inst[k]=!S.inst[k];SFX.toggle(S.inst[k]);{const c=$('modelCap');c.textContent=(S.inst[k]?'Installed: ':'Removed: ')+INST[k].name;c.classList.remove('pop');void c.offsetWidth;c.classList.add('pop');}saveGame();upd();});
     main.querySelectorAll('[data-cmp]').forEach(b=>b.onchange=()=>{const k=b.dataset.cmp;S.cmp=S.cmp.filter(x=>x!==k);if(b.checked){S.cmp.push(k);if(S.cmp.length>3)S.cmp.shift();}cards();});
     if($('cmpX'))$('cmpX').onclick=()=>{S.cmp=[];cards();};};
+  const TAB_OF={inst:'payload',power:'power',battery:'power',engine:'prop',prop:'prop',structure:'frame',thermal:'frame',computer:'data',comms:'data',oxy:'crew'};
+  const showTab=t=>{S.dtab=t;main.querySelectorAll('[data-dt]').forEach(b=>b.setAttribute('aria-selected',b.dataset.dt===t));main.querySelectorAll('[data-dtab]').forEach(x=>x.hidden=x.dataset.dtab!==t);
+    const i=TABS.findIndex(x=>x[0]===t);$('dPos').textContent=`${i+1} of ${TABS.length}`;$('dPrev').disabled=i===0;$('dNext').textContent=i===TABS.length-1?'Done: check the right panel':'Next ›';$('dscroll').scrollTop=0;};
+  window.designTab=sec=>{const t=TAB_OF[sec];if(t&&t!==S.dtab)showTab(t);};
+  main.querySelectorAll('[data-dt]').forEach(b=>b.onclick=()=>showTab(b.dataset.dt));
+  $('dPrev').onclick=()=>{const i=TABS.findIndex(x=>x[0]===S.dtab);if(i>0)showTab(TABS[i-1][0]);};
+  $('dNext').onclick=()=>{const i=TABS.findIndex(x=>x[0]===S.dtab);if(i<TABS.length-1)showTab(TABS[i+1][0]);else $('readout').scrollIntoView({block:'start',behavior:'smooth'});};
+  const objd=main.querySelector('.objd');if(objd)objd.ontoggle=()=>{S.objOpen=objd.open;};
+  const dots=ck=>{const bad=new Set();ck.forEach((x,i)=>{if(!x.ok&&x.crit){const h=howTo(i);const t=TAB_OF[h&&h.sec];if(t)bad.add(t);}});
+    main.querySelectorAll('[data-dt]').forEach(b=>{b.querySelector('.tdot').hidden=!bad.has(b.dataset.dt);});};
   const upd=()=>{cards();const d=design(),p=plan(),ck=checks(),bad=ck.filter(x=>x.crit&&!x.ok);{const n=propNeeded();$('propHint').textContent=n.fits?`Needs ${f0(Math.ceil(n.exact/10)*10)} kg`:`Needs ${f0(n.exact)} kg · room for ${f0(Math.max(0,n.room))} kg`;}$('propLab').textContent=`${S.prop} kg · ${money(S.prop*.02)}`;
     $('rbody').innerHTML=`
       ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Not ready · ${bad.length}</p><ul class="plain">${bad.map(x=>`<li class="row between"><b>${x.name}</b><span class="row">${howHtml(x,ck.indexOf(x))}</span></li>`).join('')}</ul></div>`:'<div class="issues ok"><p class="kicker" style="color:var(--good)">Ready for review</p></div>'}
@@ -676,16 +694,16 @@ VIEW.design=()=>{
       ${meter('Data per pass '+Help.q('downlink'),d.dataPass,d.store,'Gb')}
       ${meter('Oxygen for the trip '+Help.q('oxygen'),Math.round(p.tr.T/7),Math.round(d.o2weeks),'weeks',d.o2weeks>=p.tr.T/7*1.15?'ok':'over')}
       <details class="how"><summary>See the math</summary><div id="eqHost"></div></details>`;
-    bindHow($('rbody'));
+    bindHow($('rbody'));dots(ck);
     if($('eqHost')&&typeof Eq!=='undefined')Eq.attach($('eqHost'),{dry:d.dry,isp:tier('engine').isp,need:p.need,prop:S.prop,propMax:Math.max(100,cap()-d.dry),genE:d.genE,bus:d.bus,inst:d.maxInst,weeks:Math.round(p.tr.T/7)});
     if(cview)cview.set(craftOpts());else{const c=cv('craft',300,200);c.ctx.clearRect(0,0,300,200);drawCraft(c.ctx,150,105,1.5,{wing:S.sel.power,dish:S.sel.comms,inst:d.on});}chrome();};
   main.querySelectorAll('[data-sys]').forEach(b=>b.onclick=()=>{S.sel[b.dataset.sys]=+b.dataset.i;{const c=$('modelCap');c.textContent=SYS[b.dataset.sys].label+': '+SYS[b.dataset.sys].tiers[+b.dataset.i].n;c.classList.remove('pop');void c.offsetWidth;c.classList.add('pop');}main.querySelectorAll(`[data-sys="${b.dataset.sys}"]`).forEach(x=>x.setAttribute('aria-pressed',x===b));SFX.toggle(true);upd();});
-  main.querySelectorAll('[data-oxy]').forEach(b=>b.onclick=()=>{S.oxy=b.dataset.oxy;main.querySelectorAll('[data-oxy]').forEach(x=>x.setAttribute('aria-pressed',x===b));S.prop=propNeeded().load;$('prop').value=S.prop;const lab=main.querySelector('[data-sec="oxy"] .lab .dim');if(lab)lab.textContent=f1(design().o2weeks)+' weeks at this setting';SFX.toggle(true);upd();});
+  main.querySelectorAll('[data-oxy]').forEach(b=>b.onclick=()=>{S.oxy=b.dataset.oxy;main.querySelectorAll('[data-oxy]').forEach(x=>x.setAttribute('aria-pressed',x===b));S.prop=propNeeded().load;$('prop').value=S.prop;const lab=$('oxyLab');if(lab)lab.textContent=`This trip needs ${Math.ceil(plan().tr.T/7)} weeks · this setting holds ${f1(design().o2weeks)}`;SFX.toggle(true);upd();});
   main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.inst=Object.fromEntries(IK.map(k=>[k,!!p.inst[k]]));S.red=p.red;if(p.oxy)S.oxy=p.oxy;S.prop=propNeeded().load;VIEW.design();});
   $('red').onclick=()=>{S.red=!S.red;$('red').setAttribute('aria-pressed',S.red);upd();};
   $('prop').oninput=e=>{S.prop=+e.target.value;upd();};
   $('autoProp').onclick=()=>{const n=propNeeded();S.prop=n.load;$('prop').value=S.prop;upd();toast(n.fits?`Loaded ${S.prop} kg.`:'Tank full. Still not enough.');};
-  upd();bindNav('planning','review');
+  showTab(S.dtab);upd();bindNav('planning','review');
 };
 
 VIEW.review=()=>{
