@@ -11,7 +11,9 @@ Mission Control: Beyond is a static site. There is no build step and no server c
 | `js/game.js` | The game itself: physics, data, state, every screen, every event, scoring. |
 | `js/models.js` | All 3D assets, as a module called `Models`: planets, spacecraft, rocket, instruments, plus the small live 3D views and the backdrop. |
 | `js/cutscenes.js` | The cutscene engine, as a module called `Cine`. |
-| `tools/obj2glb.py` | Converts an OBJ with per-vertex colors into `assets/rover.glb`, which `rover()` in `js/models.js` loads when it exists. |
+| `tools/obj2rover.py` | Splits the Mars Exploration Rover OBJ into named parts and writes `js/rover_mesh.js`. |
+| `js/roverkit.js` | Rover engineering: parts (`RK.CAT`), instruments (`RK.INS`), objectives (`RK.OBJ`) and the calculator (`RK.spec`). |
+| `js/rover_mesh.js` | Generated rover geometry (base64, about 290 KB). |
 | `js/equations.js` | Interactive equation panels (`Eq.attach`): rocket equation, oxygen endurance, solar power. |
 | `js/voice.js` | The narrator, as a module called `Voice`. |
 | `js/GLTFLoader.js` | The standard three.js loader for `.glb` files (unchanged library code). |
@@ -82,3 +84,59 @@ Picking a launch site sets `S.site`. From then on `cap()` returns that site's ma
 **Demo controls** are hidden. Add `?demo` to the address to show them.
 
 **Not done yet.** Narration still uses the browser's built-in voice; recorded voice files can be dropped in through the manifest hook in `js/voice.js`. The exported GMAT script has not been run in GMAT.
+
+
+---
+
+## Instruments and rover engineering
+
+**Orbiter instruments (Mission 1).** `INST` in `js/game.js` holds ten instruments. Each has mass, power, data per pass, cost, reliability, a resolution line, capabilities (`cap`) and a guide (`g`: what it does, how it works, what it measures, why it matters, limitations). Guides are registered with the help pop-up as `i:<key>` when the game loads, so the numbers in a guide always match the table. The bridge under the spacecraft has six mounting positions (`SLOTS`) and a 150 kg payload allocation (`PAYLOAD_KG`); the build screen blocks a seventh instrument or one that would pass the allocation, and says which limit stops it.
+
+The build screen's Step 1 is a workstation: the four objectives are stated as measurements (`OBJM1`), the catalog cards show each instrument's numbers, and `coverage(id)` lists what each installed instrument contributes to an objective. It lists facts, never a verdict. Tick Compare on two or three cards for a side-by-side table.
+
+Instrument choices reach the rest of the mission through `REG[...].aff` (science value per region), `SURV` (what each instrument shows at the three candidate landing sites), `answered()` and `score()` (coarser instruments answer a question partly), the storm event (a radiation monitor buys 25 seconds of warning) and Mission 2 (no high-resolution camera means the lander comes down among rocks nobody saw: the rover starts at 88% condition).
+
+**Rover (Mission 2).** `js/roverkit.js` is the single source of truth:
+- `RK.CAT`: seven tabs of parts (mobility, power, arm and sampling, communications, protection, appearance). Every option carries mass and cost plus its effects.
+- `RK.INS`: thirteen rover instruments, each with a mount (mast, deck, arm turret, body bay), mounting units, energy and data per use, and a guide (`r:<key>`).
+- `RK.spec(cfg)`: turns a configuration into mass, cost, mounting use, battery, standing load, daylight power, drive energy, top speed, sand performance, climbing, rock clearance, stability, damage taken, reliability, data storage and radio rates, plus `can` (what the rover is able to do).
+- `RK.blocked(cfg,key)`: why an instrument cannot be fitted (mount full, no arm). `RK.checks(spec)`: the limits that block deployment (lander mass 900 kg, budget $110M, mounting space).
+
+The configuration lives in `S.m2.rover` and is saved on every change (and in `CAMP.rover`, so a new Mission 2 starts from the last design).
+
+**Rover bay (`VIEW.m2prep` in `js/mission2.js`).** The 3D view is `Models.view(canvas,'rover',cfg,{zoom:true,pick})`: drag to turn, scroll or pinch to zoom, click a part to open its tab (`pick` receives the part's `{tab,key,label}`). `view.highlight(key)` makes a component glow when its option is hovered. Hovering or focusing an option shows the proposed change as green and red differences next to each number before it is applied.
+
+**Rover model (`rover()` in `js/models.js`).** Parts from `js/rover_mesh.js` are assembled into groups: the suspension stretches to the chosen clearance around the hub line; the body, deck and wings stretch with the rover length; wheels are rebuilt at each hub at the chosen size and tread (the model's own wheel, or generated curved-tread, wide sand or wire-mesh wheels) and the whole vehicle is raised so they still touch the ground. Instruments, the radioisotope generator, battery packs, drill bits, the sample rack, antennas, covers, armor plates and decals are children of the part they attach to. Materials use a shared weathering texture (dust and grime, also used as a roughness map).
+
+**Expedition (`js/rover.js`).** `genForms(site, seed)` places exactly ten formations from the seed in `S.m2.seed` (made once per rover mission, renewed only by Restart or Fly it again): rock type follows the terrain zone, positions avoid the base, steep ground, crater walls and each other. The minimap (top right of the view) and the regional map (M) show all ten as diamonds: dashed when only located from orbit, then sighted, photographed, analyzed and sampled. Click a marker for its code, status, distance and bearing, and set it as a waypoint. Names and rock types stay hidden until the rover gets there and uses its instruments. Every three seconds, and when the page is hidden, the expedition saves itself into `S.m2.rv`, so a refresh continues where it stopped.
+
+Gameplay reads the rover spec: energy in watt-hours (generation from sunlight, dust and the time of day, or a generator; standing load; drive energy by mass, sand and slope), top speed, sand speed, climbing, rocks small enough to drive over, slope damage by stability, impact damage by frame and wheel toughness, turning, data storage filled by each picture or analysis and emptied by direct-to-Earth and relay passes, and faults whose rate follows reliability. Instruments decide which actions exist: camera pictures, laser or contact chemistry, microscope close-ups (the grain detail that tells sedimentary from igneous rock), thermal images that show soft sand, radar profiles, weather and radiation records, an onboard lab that needs a powder drill. The magnetometer and seismometer work but return rover noise, and say why.
+
+**Restart.** The button at the bottom left (`restartMission()` in `js/game.js`) restarts the current mission after a confirmation. Mission 2 keeps the landing site, the orbital survey and the rover design and rolls new formations.
+
+**Not done.** The expedition is a top-down map view; the 3D rover appears there as a picture rendered from above, not as a 3D scene. Equipment mounting positions are fixed per instrument (there is no choice of where an instrument bolts on). Hover previews need a mouse or keyboard focus; on a touch screen a tap applies the change straight away.
+
+
+---
+
+## NASA GMAT trajectories
+
+`js/gmat_data.js` is made by `tools/gmat_pipeline.py`, which writes GMAT scripts and runs GMAT's console program:
+
+1. **Ephemeris run.** A clock spacecraft steps one day at a time and GMAT reports Earth's and Mars's positions and velocities (Sun-centred, mean ecliptic of J2000, DE421) for day −10 to day 1,900 of the game calendar.
+2. **Targeting run.** For every launch day the game counts as inside a window (the same test as `plan()`), and for both routes, GMAT's differential corrector varies the departure velocity until the spacecraft is within 500 m of Mars's centre on arrival day. Forces: point-mass Sun, Venus, Jupiter and Saturn, Runge-Kutta 8(9). The arrival day is the one with the lowest launch energy plus arrival speed within 45 days of the game's flight time, avoiding transfers within 8° of exactly half an orbit. A two-body Lambert solution is only the starting guess.
+3. **Propagation run.** GMAT flies each targeted transfer again and reports position and speed every 2 days.
+
+In `js/game.js`, `GM` decodes the file. `Le()` and `Lm()` (where Earth and Mars are) read GMAT's positions, so launch windows follow the real planets. `plan()` keeps the game's window rule for the aiming error, and inside a window it takes the flight time and the path from GMAT (`tr.gm` names the transfer; `tr.T` is GMAT's flight time). `drawSys()` draws the real orbits, the planets and GMAT's path; `craftAt()` gives the spacecraft's position and speed on any day of the cruise. The cruise telemetry (distance from the Sun, speed, distance from Earth and Mars, signal delay) comes from those numbers. Outside a window, or if the file is missing, the game falls back to its own circular-orbit model.
+
+**Not from GMAT:** the braking burn, aerobraking and orbit choices, the speed-change budget and the aiming-error penalty still use the game's simplified model, so the game's balance is unchanged. The launch energy (C3) and arrival speed GMAT found are shown next to them for comparison.
+
+## Race mode
+
+`js/race.js` (`Race`) handles rooms. The host opens a PeerJS peer named `mcb-race-<code>`; guests connect to it. Messages: `hello` (guest joins), `welcome` and `lobby` (host to guests), `start` (host sends the mission, seed and rover site), `prog` (guest to host every 4 s and on each screen change: stage, step, score so far, finished, final score, time), `board` (host to everyone: the leaderboard; `over` when everyone has finished or left).
+
+`game.js` provides `__raceStart(mission, seed, site)` and `__raceProgress()`. With `S.race` set, `srnd(key)` gives seeded random numbers for the launch day (`pickWindow`), whether the rare rock and toilet events happen, and the cruise event schedule (`makeSchedule`); Mission 2 uses the seed for the rock formations and the race picks the landing site. Debriefs call `Race.finish()` with the final score. Restart keeps the race seed.
+
+The leaderboard sits bottom right, collapsed to one line until opened. Ranking is final score, then time. A player who refreshes can rejoin with the same call sign (`Race.rejoin()`); if the host leaves, the race ends and everyone's mission carries on solo.
+
+**Limits.** Browsers must be able to reach unpkg.com and the PeerJS server, and to connect to each other. Very strict networks block direct WebRTC connections; there is no relay (TURN) server. Joining after the start is refused. Small chance events during flight (a bolt working loose, a breaker trip) are each player's own luck.

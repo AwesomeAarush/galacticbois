@@ -19,7 +19,20 @@ const rad=x=>x*Math.PI/180, deg=x=>x*180/Math.PI;
 const wrap=a=>((a+180)%360+360)%360-180;
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const jd=d=>(BASE+d*DAY-Date.UTC(2000,0,1,12))/DAY;
-const Le=d=>100.464+NE*jd(d), Lm=d=>355.453+NM*jd(d);
+/* ---------- NASA GMAT data (js/gmat_data.js, made by tools/gmat_pipeline.py) ----------
+   Earth and Mars positions for every day of the calendar, and for every launch day inside a window an
+   Earth-to-Mars transfer that GMAT targeted to reach Mars and propagated in 2-day steps. Without the file
+   the game falls back to its own circular-orbit model. Positions are in AU, Sun-centred ecliptic of J2000. */
+const GM=(()=>{const D=window.GMAT_DATA;if(!D)return null;
+  const dec=t=>{const b=atob(t),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Int16Array(u.buffer);};
+  const E=dec(D.eph),s0=D.meta.ephStart,n=D.meta.ephDays,T={};
+  for(const k in D.trans){T[k]={};for(const c of D.trans[k])T[k][c.d]=c;}
+  const pos=(d,b)=>{const x=Math.max(0,Math.min(n-1.001,d-s0)),i=Math.floor(x),f=x-i,o=b*3,a=i*6+o,c=a+6;return [0,1,2].map(j=>(E[a+j]+(E[c+j]-E[a+j])*f)*1e-4);};
+  const path=c=>{if(!c._p){const v=dec(c.p),pts=[];for(let i=0;i<v.length;i+=4)pts.push([v[i]*1e-4,v[i+1]*1e-4,v[i+2]*1e-4,v[i+3]/100]);c._p=pts;}return c._p;};
+  /* spacecraft state t days after departure, interpolated between GMAT's 2-day points */
+  const at=(c,t)=>{const P=path(c),x=Math.max(0,Math.min(P.length-1.001,t/D.meta.step)),i=Math.floor(x),f=x-i,a=P[i],b=P[i+1];return a.map((v,j)=>v+(b[j]-v)*f);};
+  return {meta:D.meta,pos,lon:(d,b)=>{const p=pos(d,b);return Math.atan2(p[1],p[0])*180/Math.PI;},get:(k,d)=>(T[k]||{})[Math.round(d)]||null,path,at};})();
+const Le=d=>GM?GM.lon(d,0):100.464+NE*jd(d), Lm=d=>GM?GM.lon(d,1):355.453+NM*jd(d);
 const dateStr=d=>new Date(BASE+d*DAY).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
 const f0=x=>Math.round(x).toLocaleString('en-US'), f1=x=>x.toFixed(1), f2=x=>x.toFixed(2);
 
@@ -40,17 +53,80 @@ function posAt(tr,t){
 }
 
 /* ============ game data ============ */
+/* Orbiter instruments. More are offered than the mission needs, and the bridge under the spacecraft has six
+   mounting positions, so the player has to choose. Each entry carries its own guide (what it does, how it
+   works, what it measures, why it matters, limits) and the capabilities the objective panel reads (cap).
+   Masses, powers and data volumes are simplified game values modelled on the instrument classes named
+   in "tag"; they are not those instruments' specifications. */
 const INST={
-  cam:{name:'High-resolution camera',tag:'HiRISE-type',mass:65,cost:28,power:60,data:8,rel:.96,out:'Surface images',
-    desc:'A telescope pointed down. Captures terrain, layered rock, craters and channels in fine detail.',teach:'Image resolution, planetary geology, remote sensing'},
-  spec:{name:'Imaging spectrometer',tag:'CRISM-type',mass:33,cost:22,power:45,data:6,rel:.94,out:'Mineral spectra',
-    desc:'Splits reflected sunlight into hundreds of colors. Each mineral absorbs its own set of wavelengths.',teach:'Electromagnetic spectrum, absorption spectra, mineral identification'},
-  mcs:{name:'Atmospheric profiler',tag:'MCS-type',mass:9,cost:10,power:11,data:1,rel:.98,out:'Temperature, dust and water-vapor profiles',
-    desc:'Looks sideways through the atmosphere at the horizon and measures it layer by layer.',teach:'Atmospheric pressure, temperature profiles, planetary climate'},
-  radar:{name:'Shallow subsurface radar',tag:'SHARAD-type',mass:15,cost:14,power:20,data:3,rel:.95,out:'Subsurface reflections',
-    desc:'Sends radio pulses into the ground. Echoes from buried layers reveal ice and rock boundaries.',teach:'Radar reflection, wave propagation, subsurface exploration'}
+  cam:{name:'High-resolution camera',tag:'HiRISE-type',mass:65,cost:28,power:60,data:8,rel:.96,res:'0.3 m per pixel, 6 km swath',out:'Surface images',
+    cap:{img:.3},teach:'Image resolution, planetary geology, remote sensing',
+    g:{what:'A large telescope camera that photographs the ground in fine detail.',how:'A 0.5 m mirror focuses light onto a long strip of detectors. As the orbiter moves, the strip sweeps out a picture line by line.',
+      meas:'Pictures of the surface at 0.3 m per pixel, in stereo when two passes overlap, so slopes can be measured.',why:'Boulders and slopes a lander would hit are only a meter or two across. You need this scale to judge a landing site.',
+      lim:'Narrow: one image covers a strip 6 km wide, so mapping a whole region takes many passes. Produces the most data of any instrument here. Sees only the surface, not what it is made of.'}},
+  ctx:{name:'Context camera',tag:'CTX-type',mass:4,cost:6,power:7,data:3,rel:.98,res:'6 m per pixel, 30 km swath',out:'Wide surface images',
+    cap:{img:6},teach:'Mapping, image scale',
+    g:{what:'A small wide-angle camera for regional maps.',how:'A short telescope and a single line of detectors, swept along by the orbit like a push-broom.',
+      meas:'Black-and-white pictures 30 km wide at 6 m per pixel.',why:'Shows the layout of a region: channels, craters, the delta fan, sand fields. Cheap, light and easy on the radio.',
+      lim:'At 6 m per pixel a 2 m boulder is smaller than one pixel, so it cannot tell a safe landing spot from a boulder field.'}},
+  spec:{name:'Imaging spectrometer',tag:'CRISM-type',mass:33,cost:22,power:45,data:6,rel:.94,res:'18 m per pixel, 0.4 to 4 µm',out:'Mineral spectra',
+    cap:{min:18,nir:true},teach:'Electromagnetic spectrum, absorption spectra, mineral identification',
+    g:{what:'A camera that splits reflected sunlight into hundreds of narrow colors.',how:'A grating spreads the light out like a prism. Each mineral absorbs some colors more than others, leaving dips in the spectrum.',
+      meas:'A spectrum for every 18 m pixel, from visible light to 4 µm in the near infrared.',why:'Clays and other minerals that form in water have dips near 1.9 and 2.3 µm. This is how orbiters find where water once was.',
+      lim:'Needs sunlight, so it works only on the day side. Dust coatings hide the rock underneath. Cooled detectors limit how long it can run.',draw:'spectrum'}},
+  tes:{name:'Thermal emission imager',tag:'THEMIS-type',mass:11,cost:9,power:14,data:2,rel:.97,res:'100 m per pixel, 6 to 15 µm',out:'Surface temperature and thermal minerals',
+    cap:{min:100,therm:true,atmNadir:true},teach:'Thermal inertia, infrared emission',
+    g:{what:'An infrared camera that measures how warm the ground is, day and night.',how:'Rock holds heat longer than sand or dust, so it stays warmer after sunset. That property is called thermal inertia. Some minerals also glow more weakly at certain infrared colors.',
+      meas:'Surface temperature at 100 m per pixel, a rough estimate of how rocky the ground is, and broad mineral groups such as olivine and carbonate.',why:'Tells bedrock from loose sand across a whole region, and adds a second, independent look at minerals.',
+      lim:'Coarse: one 100 m pixel blurs together the layers in the delta. Cannot see the 1.9 and 2.3 µm water bands, which lie in the near infrared. Atmospheric temperatures come out only in broad layers.'}},
+  mcs:{name:'Atmospheric profiler',tag:'MCS-type',mass:9,cost:10,power:11,data:1,rel:.98,res:'5 km vertical layers, 0 to 80 km',out:'Temperature, dust and water-vapor profiles',
+    cap:{atm:true},teach:'Atmospheric pressure, temperature profiles, planetary climate',
+    g:{what:'An instrument that looks sideways through the atmosphere at the horizon.',how:'Looking at the edge of the planet, its telescopes see the air in thin layers. Infrared channels read temperature, dust and water vapor in each layer.',
+      meas:'Profiles of temperature, dust and water vapor from the ground to about 80 km, in 5 km layers.',why:'Weather and climate: how dust storms grow, how seasons move water between the poles. Also the forecast a landing team watches.',
+      lim:'Says nothing about the surface or what lies under it. Coarse sideways resolution, about 100 km.'}},
+  radar:{name:'Shallow subsurface radar',tag:'SHARAD-type',mass:15,cost:14,power:20,data:3,rel:.95,res:'15 m vertical, to about 1 km deep',out:'Subsurface reflections',
+    cap:{sub:true},teach:'Radar reflection, wave propagation, subsurface exploration',
+    g:{what:'A radar that listens for echoes from layers buried under the surface.',how:'A 10 m antenna sends radio pulses down. Each boundary between materials, ice over rock for example, reflects a little energy back. Later echoes come from deeper layers.',
+      meas:'Echo strength against delay, which becomes depth: layers down to about 1 km, 15 m apart.',why:'The only way here to find buried ice and to see how deep it goes.',
+      lim:'Cannot tell what a layer is made of, only that a boundary exists. Rough surfaces scatter the signal. Needs a long, clear antenna on the spacecraft.'}},
+  grs:{name:'Gamma-ray and neutron spectrometer',tag:'GRS-type',mass:30,cost:16,power:32,data:.5,rel:.96,res:'about 300 km footprint, top 1 m',out:'Hydrogen and element abundances',
+    cap:{hyd:true},teach:'Cosmic rays, neutron spectroscopy',
+    g:{what:'A detector that counts gamma rays and neutrons coming up from the ground.',how:'Cosmic rays hit the surface and knock out neutrons. Hydrogen, mostly in water ice, slows those neutrons, so fewer fast neutrons escape where there is ice.',
+      meas:'How much hydrogen sits in the top meter of the ground, plus elements such as iron, potassium and chlorine.',why:'Mapped buried ice across whole latitudes on Mars Odyssey.',
+      lim:'Each reading averages an area about 300 km across, larger than Jezero Crater. Sees only the top meter. Heavy, and needs a boom to keep the spacecraft’s own signal out.'}},
+  alt:{name:'Laser altimeter',tag:'MOLA-type',mass:26,cost:12,power:34,data:.5,rel:.95,res:'spots every 300 m, 1 m vertical',out:'Topography and regional slopes',
+    cap:{topo:true},teach:'Laser ranging, topography',
+    g:{what:'A laser that measures the height of the ground under the spacecraft.',how:'It fires short laser pulses and times their return. Half the round trip times the speed of light is the distance.',
+      meas:'Ground height every 300 m along track, accurate to about 1 m. Regional slopes over kilometers.',why:'Elevation maps, crater depths, the height of the delta scarp, and the slope a lander faces over long distances.',
+      lim:'Misses everything between its 300 m spots, so it cannot see boulders or short steep slopes. Lasers wear out with use.'}},
+  mag:{name:'Magnetometer',tag:'MAG/ER-type',mass:5,cost:5,power:4,data:.2,rel:.98,res:'about 1 nT',out:'Crustal magnetic fields',
+    cap:{magf:true},teach:'Planetary magnetism',
+    g:{what:'A sensor that measures magnetic fields.',how:'Coils on a boom respond to the strength and direction of the local field. The boom keeps it away from the spacecraft’s own currents.',
+      meas:'The magnetic field along the orbit, to about one nanotesla.',why:'Mars lost its global field billions of years ago, but parts of the old crust are still magnetized. That history matters for how Mars lost its atmosphere.',
+      lim:'Says nothing about minerals, ice, weather or landing hazards. Readings are noisy unless the boom is long.'}},
+  rad:{name:'Radiation monitor',tag:'MARIE-type',mass:3,cost:3,power:7,data:.1,rel:.97,res:'particle counts every 30 s',out:'Radiation dose and solar particle alerts',
+    cap:{radm:true},teach:'Space radiation',
+    g:{what:'A particle detector that measures the radiation hitting the spacecraft.',how:'Charged particles leave a trail of charge as they pass through stacked silicon detectors. Counting and sizing those trails gives the dose.',
+      meas:'Dose rate from cosmic rays and from solar particle events, in cruise and in orbit.',why:'Crew safety. It also sees a solar proton storm build before the worst of it arrives, which buys time to turn the spacecraft.',
+      lim:'Measures where the spacecraft is, not on the surface. Adds nothing to the science questions.'}}
 };
-const IK=Object.keys(INST);
+const IK=Object.keys(INST),SLOTS=6,PAYLOAD_KG=150; /* six positions on the instrument bridge, 150 kg payload allocation */
+const IDRAW={cam:'pixels',ctx:'pixels',spec:'spectrum',radar:'echo',tes:'thermal',alt:'laser'};
+IK.forEach(k=>{const i=INST[k],g=i.g;Help.add('i:'+k,{t:i.name,sub:i.tag+' · orbiter instrument',rows:[['What it does',g.what],['How it works',g.how],['What it measures',g.meas],['Why it matters',g.why],['Limitations',g.lim]],
+  spec:[['Mass',i.mass+' kg'],['Power',i.power+' W'],['Data',i.data+' Gb per pass'],['Resolution',i.res],['Cost',money(i.cost)],['Reliability',Math.round(i.rel*100)+'%']],drawNow:IDRAW[k]});});
+/* Mission 1 objectives, stated as measurements. The payload panel lists what each chosen instrument contributes;
+   it never says whether that is enough. */
+const OBJM1=[{id:'surf',q:'What is the surface made of?',where:'Jezero Crater',need:'Mineral maps sharp enough to separate layers in a 2 km wide delta, at wavelengths where water-bearing minerals show (near 1.9 and 2.3 µm).'},
+  {id:'atm',q:'How does the atmosphere vary?',where:'North polar cap',need:'Temperature, dust and water vapor from the ground up to about 80 km, layer by layer.'},
+  {id:'ice',q:'Is there ice under the surface?',where:'North polar cap',need:'A measurement that reaches hundreds of meters below the surface and shows how deep the layers go.'},
+  {id:'site',q:'Where should the surface crew land?',where:'Jezero Crater',need:'Boulders and slopes at the scale of a meter or two, near each candidate site.'}];
+function coverage(id){const on=IK.filter(k=>S.inst[k]),L=[];const n=k=>INST[k].name;
+  for(const k of on){const c=INST[k].cap;
+    if(id==='surf'&&c.min)L.push(`${n(k)}: minerals at ${c.min} m per pixel${c.nir?', near infrared':', thermal infrared only'}`);
+    if(id==='atm'&&c.atm)L.push(`${n(k)}: 5 km layers, 0 to 80 km`);if(id==='atm'&&c.atmNadir)L.push(`${n(k)}: temperature in broad layers, looking straight down`);
+    if(id==='ice'&&c.sub)L.push(`${n(k)}: echoes to about 1 km deep`);if(id==='ice'&&c.hyd)L.push(`${n(k)}: hydrogen in the top 1 m, 300 km footprint`);
+    if(id==='site'&&c.img)L.push(`${n(k)}: ${c.img} m per pixel`);if(id==='site'&&c.topo)L.push(`${n(k)}: heights every 300 m`);if(id==='site'&&c.therm)L.push(`${n(k)}: rockiness at 100 m per pixel`);}
+  return L;}
 const SYS={
   structure:{label:'Structure',why:'Carries every other part. Lighter frames save mass but shake loose more easily.',tiers:[
     {n:'Lightweight composite',mass:150,cost:16,rel:.95,bolt:1.6,s:'bolt risk ×1.6'},
@@ -91,11 +167,11 @@ const ORB={aero:{n:'Low orbit by aerobraking',d:'Capture into a long ellipse, th
            direct:{n:'Direct to 300 km circular',d:'One large burn straight into the science orbit. Full quality from day one, very propellant-hungry. Needs a light spacecraft and the high-energy engine.',passes:10,q:1}};
 const REG={
   jezero:{n:'Jezero Crater',lon:77.5,lat:18.4,d:'A 45 km crater that once held a lake. A river delta is still visible on its western edge.',
-    look:'Mineral composition and evidence of past water.',aff:{cam:.9,spec:1,mcs:.5,radar:.4}},
+    look:'Mineral composition and evidence of past water.',aff:{cam:.9,spec:1,mcs:.5,radar:.4,ctx:.55,tes:.6,grs:.15,alt:.35,mag:.1,rad:.05}},
   valles:{n:'Valles Marineris',lon:-70,lat:-10,d:'A canyon system over 4,000 km long and up to 7 km deep. Its walls expose kilometers of layered rock.',
-    look:'Geological layers, erosion and surface structure.',aff:{cam:1,spec:.7,mcs:.6,radar:.6}},
+    look:'Geological layers, erosion and surface structure.',aff:{cam:1,spec:.7,mcs:.6,radar:.6,ctx:.65,tes:.5,grs:.2,alt:.6,mag:.2,rad:.05}},
   polar:{n:'North polar cap',lon:0,lat:80,d:'Stacked layers of water ice and dust, topped by a seasonal coat of carbon-dioxide frost.',
-    look:'Water ice, atmospheric interactions and climate history.',aff:{cam:.6,spec:.6,mcs:1,radar:1}}
+    look:'Water ice, atmospheric interactions and climate history.',aff:{cam:.6,spec:.6,mcs:1,radar:1,ctx:.4,tes:.55,grs:.7,alt:.45,mag:.15,rad:.05}}
 };
 const DIM=[1,.6,.35,.2,.1,.05];
 const STAGES=['title','briefing','planning','design','review','cruise','moi','ops','site','debrief','m2brief','m2prep','rover','outpost','m2debrief'];
@@ -142,7 +218,7 @@ const NB=[
 ];
 
 /* ============ state ============ */
-function fresh(){return {stage:'title',max:0,mission:1,site:'canaveral',inst:{cam:false,spec:false,mcs:false,radar:false},
+function fresh(){return {stage:'title',max:0,mission:1,site:'canaveral',inst:Object.fromEntries(IK.map(k=>[k,false])),
   sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},oxy:'regen',red:false,prop:250,
   dep:0,transfer:'hohmann',orbit:'aero',P:[],log:[],aura:0,health:0,retries:0,loose:0,fail:[],degr:1,calib:1,name:'Wayfarer',guided:true,quiz:{},bolts:0};}
 let S=fresh(), RUN=0, DEMO={k:1};
@@ -151,14 +227,15 @@ const $=id=>document.getElementById(id);
 const main=$('main');
 
 function plan(){
-  const tr=transfer(TR[S.transfer].Q), d=S.dep;
-  const miss=wrap(Lm(d)+NM*tr.T-(Le(d)+deg(tr.nu)));
+  const tr0=transfer(TR[S.transfer].Q), d=S.dep;
+  const miss=wrap(Lm(d+tr0.T)-(Le(d)+deg(tr0.nu)));
+  const g=GM&&GM.get(S.transfer,d),tr=g?Object.assign({},tr0,{T:g.tof,gm:{k:S.transfer,d,c3:g.c3,vinf:g.vinf,dth:g.dth}}):tr0;
   const pen=10*miss*miss;
   const rp=R_MARS+300, vh=Math.sqrt(tr.vinf**2+2*MU_M/rp), ae=(rp+R_MARS+45000)/2;
   const vell=Math.sqrt(MU_M*(2/rp-1/ae)), vc=Math.sqrt(MU_M/rp), vesc=Math.sqrt(2*MU_M/rp);
   const vt=S.orbit==='direct'?vc:vell, moi=(vh-vt)*1000;
   const ea=rad(Le(d+tr.T)), ma=rad(Lm(d+tr.T));
-  const dist=Math.hypot(RM*Math.cos(ma)-Math.cos(ea),RM*Math.sin(ma)-Math.sin(ea))*AU;
+  const dist=GM?Math.hypot(...[0,1,2].map(j=>GM.pos(d+tr.T,1)[j]-GM.pos(d+tr.T,0)[j]))*AU:Math.hypot(RM*Math.cos(ma)-Math.cos(ea),RM*Math.sin(ma)-Math.sin(ea))*AU;
   return {tr,miss,pen,feasible:Math.abs(miss)<=10,vh,vt,vc,vesc,moi,trim:100+site().dv,need:40+pen+moi+60+site().dv,dist,light:dist/C_KMS/60};
 }
 function bestDep(){let b=0,bm=1e9;for(let d=0;d<=HORIZON;d++){const o=S.dep;S.dep=d;const m=Math.abs(plan().miss);S.dep=o;if(m<bm){bm=m;b=d}}return b;}
@@ -170,10 +247,13 @@ function scanWindows(){const o=S.dep,out=[];let st=null;
   if(st!==null)out.push([st,HORIZON]);S.dep=o;return out;}
 /* Pick one window and one day in it. Called once when a new mission starts, then saved with the rest of
    the state, so refreshing the page never rerolls the date. */
-function pickWindow(){const rs=scanWindows();
+/* In a race every player must get the same launch day and the same cruise events, so those rolls come from the
+   race seed (keyed by what they decide). Outside a race they are ordinary random numbers. */
+function srnd(key){if(!S.race)return Math.random;let h=S.race.seed|0;for(const ch of key)h=Math.imul(h^ch.charCodeAt(0),16777619);return rng(h);}
+function pickWindow(){const rs=scanWindows(),R=srnd('window');
   if(!rs.length){S.dep=bestDep();return;}
-  const r=rs[Math.floor(Math.random()*rs.length)],span=r[1]-r[0];
-  S.dep=r[0]+Math.floor(Math.random()*(span+1));}
+  const r=rs[Math.floor(R()*rs.length)],span=r[1]-r[0];
+  S.dep=r[0]+Math.floor(R()*(span+1));}
 function windowOf(d){const open=x=>{const o=S.dep;S.dep=x;const m=Math.abs(plan().miss);S.dep=o;return m<=10;};
   if(open(d)){let a=d,b=d;while(a>0&&open(a-1))a--;while(b<HORIZON&&open(b+1))b++;return [a,b,`${b-a+1} days long. Any date inside it works.`];}
   for(let x=d+1;x<=HORIZON;x++)if(open(x)){let e=x;while(e<HORIZON&&open(e+1))e++;return [x,e,`This date is outside a window. The next one opens on ${dateStr(x)}.`];}
@@ -181,9 +261,6 @@ function windowOf(d){const open=x=>{const o=S.dep;S.dep=x;const m=Math.abs(plan(
   return [0,0,'No window is open for this route in the next two years.'];}
 
 /* The three science questions the payload exists to answer, and the instrument that answers each one. */
-const OBJQ=[['What is the surface made of?','spec','Jezero Crater','The spectrometer reads dips in reflected light.'],
-  ['How does the atmosphere vary?','mcs','North polar cap','The profiler looks sideways through the air, layer by layer.'],
-  ['Is there ice under the surface?','radar','North polar cap','The radar listens for echoes from buried layers.']];
 const tier=k=>SYS[k].tiers[S.sel[k]];
 function design(){
   const on=IK.filter(k=>S.inst[k]);
@@ -197,7 +274,8 @@ function design(){
   const instP=on.reduce((s,k)=>s+INST[k].power,0), maxInst=on.reduce((m,k)=>Math.max(m,INST[k].power),0);
   let rel=tier('structure').rel*tier('engine').rel*tier('computer').rel*tier('thermal').rel;
   if(S.red)rel=1-(1-rel)*.5;
-  return {on,dry,wet,cost,genE,genM,bus,instP,maxInst,rel,dv:tier('engine').isp*G0*Math.log(wet/dry),oxy:ox,o2weeks:100/ox.drain,
+  const payload=on.reduce((s,k)=>s+INST[k].mass,0),payCost=on.reduce((s,k)=>s+INST[k].cost,0);
+  return {on,payload,payCost,dry,wet,cost,genE,genM,bus,instP,maxInst,rel,dv:tier('engine').isp*G0*Math.log(wet/dry),oxy:ox,o2weeks:100/ox.drain,
     store:tier('computer').store,down:tier('comms').down,dataPass:on.reduce((s,k)=>s+INST[k].data,0),wh:tier('battery').wh};
 }
 function checks(){
@@ -211,14 +289,14 @@ function checks(){
   add('Sufficient propellant',d.dv>=p.need,`${f0(d.dv)} m/s available against ${f0(p.need)} m/s required`);
   add('Functional communications',true,`${tier('comms').n}, ${tier('comms').down} Gb per pass`);
   add('Adequate data storage',d.store>=d.dataPass,`${d.store} Gb storage against ${d.dataPass} Gb from one pass with every instrument on`);
-  add('Operational scientific instruments',d.on.length>0,`${d.on.length} of 4 installed`);
+  add('Operational scientific instruments',d.on.length>0&&d.on.length<=SLOTS&&d.payload<=PAYLOAD_KG,d.on.length>SLOTS?`${d.on.length} instruments for ${SLOTS} mounting positions`:d.payload>PAYLOAD_KG?`Payload ${f0(d.payload)} kg against a ${PAYLOAD_KG} kg allocation`:`${d.on.length} of ${SLOTS} positions used, ${f0(d.payload)} of ${PAYLOAD_KG} kg`);
   add('Power for all instruments at once',d.genM>=d.bus+d.instP,`${f0(d.bus+d.instP)} W with everything on. You will need to stagger observations.`,false);
   add('Propellant margin of 10%',d.dv>=p.need*1.1,`Margin is ${f0((d.dv/p.need-1)*100)}%. Corrections during cruise may use it up.`,false);
   add('Downlink keeps up with data',d.down>=d.dataPass,`${d.dataPass} Gb generated per full pass, ${d.down} Gb transmitted`,false);
   const wk=p.tr.T/7;
   add('Oxygen covers the whole trip',d.o2weeks>=wk*1.15,`${f1(d.o2weeks)} weeks of oxygen against ${f0(wk)} weeks of flight. Your system is ${d.oxy.n.toLowerCase()}.`);
   const FIX=['Remove an instrument, pick lighter parts or load less propellant.','Pick cheaper parts or leave an instrument behind.','Go back to the trajectory and move the departure date.',
-    'Fit larger solar arrays, or choose systems that draw less power.','Fit a larger battery.','Add propellant, cut mass, or pick a flight plan that needs less speed change.','','Fit a computer with more storage.','Install at least one instrument.'];
+    'Fit larger solar arrays, or choose systems that draw less power.','Fit a larger battery.','Add propellant, cut mass, or pick a flight plan that needs less speed change.','','Fit a computer with more storage.','Fit between one and six instruments, within the payload allocation.'];
   const VER=['test: weigh the assembled spacecraft','inspection: audit of committed costs','analysis: trajectory simulation','analysis: power budget at Mars distance','analysis: eclipse energy budget','analysis: rocket equation against the flight plan','test: end-to-end radio link','analysis: data volume per pass','inspection: instrument fit check','analysis: power budget','analysis: propellant budget','analysis: data budget','analysis: life-support budget'];
   c.forEach((x,i)=>{x.fix=FIX[i]||'';x.ver=VER[i]||'';});
   return c;
@@ -288,7 +366,18 @@ function chrome(){
     h=`<span class="chip ${d.wet>cap()?'over':''}">${f0(d.wet)} / ${f0(cap())} kg</span><span class="chip ${d.cost>BUDGET?'over':''}">${money(d.cost)} / ${money(BUDGET)}</span>`;}
   else if(['cruise','moi','ops','site'].includes(S.stage))h=`<span class="chip met">MET ${f0((S.cr?S.cr.tick*7:0)+(S.ops?S.ops.pass*2:0))} d</span><span class="chip">Health ${f0(S.health)}%</span><span class="chip">Propellant ${f0(S.prop)} kg</span>${S.crew?`<span class="chip ${crewLevel()>1?'over':''}">Crew ${CLV[crewLevel()][1]}</span>`:''}`;
   $('hstats').innerHTML=h;
+  const rb=$('restartBtn');if(rb)rb.hidden=S.stage==='title'||/debrief$/.test(S.stage);
 }
+/* Restart the current mission from its first screen. Mission 2 keeps the landing site, the orbital survey and the
+   rover design, and rolls a new set of rock formations. Mission 1 starts over with a new launch window. */
+function restartMission(){const n=S.mission||1,nm=S.name,gd=S.guided,M=S.m2||{},rc=S.race;Voice.stop();if(window.Cine&&Cine.skip)try{Cine.skip();}catch(e){}
+  S=fresh();S.mission=n;S.name=nm;S.guided=gd;S.race=rc;store.del('mcb-save');
+  if(n===2){S.m2={site:M.site||'floor',fromM1:M.fromM1,survey:M.survey,rover:M.rover,seed:rc?rc.seed:undefined};go('m2brief');}
+  else{pickWindow();go('briefing');}}
+$('restartBtn').onclick=async()=>{if(document.querySelector('.overlay'))return;
+  const r=await ask({kicker:'Restart',title:`Restart mission ${S.mission||1}?`,body:`<p>${(S.mission||1)===2?'You go back to the briefing. Your landing site and rover design are kept; the rock formations are placed anew.':'You go back to the briefing with a fresh spacecraft and a new launch window.'} Progress in this attempt is lost.</p>`,
+    choices:[{label:'Restart',value:'yes'},{label:'Keep playing',value:'no'}]});
+  if(r==='yes')restartMission();};
 const LOC={briefing:['Mission briefing','ASEA Mission Control'],science:['Scientific preparation','Science Operations Center'],planning:['Interplanetary planning','Mission Planning Center'],design:['Spacecraft construction','Spacecraft Design Facility'],
   review:['Technical review','Launch Readiness Board'],site:['Landing site selection','Mission Planning Center'],m2brief:['Mission briefing','ASEA Mission Control'],m2prep:['Rover preparation','Surface Systems Bay'],rover:['Surface expedition','Jezero Crater, Mars'],outpost:['Outpost operations','Jezero Base'],m2debrief:['Mission debrief','ASEA Science Operations Center'],cruise:['Interplanetary cruise','Spacecraft Operations Center'],moi:['Mars orbit insertion','Spacecraft Operations Center'],ops:['Science operations','Mars orbit'],debrief:['Mission debrief','ASEA Science Operations Center']};
 let BG=null,cardT=[];
@@ -315,7 +404,7 @@ function typeIn(){if(calm()||DEMO.k<.2)return;main.querySelectorAll('.say p:not(
   const tick=now=>{if(my!==RUN||!el.isConnected)return;if(!t0)t0=now;const n=Math.min(full.length,Math.ceil((now-t0)/dur*full.length));
     if(n>=full.length){el.textContent=full;return;}el.innerHTML=esc(full.slice(0,n))+`<span style="visibility:hidden">${esc(full.slice(n))}</span>`;requestAnimationFrame(tick);};
   el.innerHTML=`<span style="visibility:hidden">${esc(full)}</span>`;setTimeout(()=>requestAnimationFrame(tick),(LOC[S.stage]?1150:200)*DEMO.k);});}
-function go(stage){const changed=S.stage!==stage;Voice.stop();if(changed)ghost();RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
+function go(stage){setTimeout(()=>{if(window.Race&&Race.active())Race.stage();},0);const changed=S.stage!==stage;Voice.stop();if(changed)ghost();RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
   if(changed)locCard(stage);VIEW[stage]();main.querySelectorAll('button').forEach(b=>{b.type='button';});saveGame();
   if(changed){main.classList.remove('enter');void main.offsetWidth;main.classList.add('enter');typeIn();
     const sy=main.querySelector('.say');if(sy&&Voice.on){const tx=sy.querySelector('p:not(.kicker)');setTimeout(()=>{if(S.stage===stage&&!Cine.playing)Voice.say(tx.getAttribute('aria-label')||tx.textContent,sy.dataset.who);},(LOC[stage]?1700:300)*DEMO.k);}}}
@@ -327,29 +416,41 @@ function bindNav(back,next){$('back').onclick=()=>go(back||'title');$('next').on
 
 /* ============ drawing ============ */
 function rng(seed){return()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+/* Where the spacecraft is t days after launch: from GMAT's propagated transfer when there is one, otherwise from
+   the game's own transfer ellipse. Returns AU and km/s. */
+function craftAt(fl,t){const tr=fl.tr,c=tr.gm&&GM?GM.get(tr.gm.k,tr.gm.d):null;
+  if(c){const p=GM.at(c,Math.min(t,tr.T));return {x:p[0],y:p[1],z:p[2],r:Math.hypot(p[0],p[1],p[2]),v:p[3],gmat:true};}
+  const s=posAt(tr,Math.min(t,tr.T)),a=rad(Le(fl.dep))+s.nu;return {x:s.r*Math.cos(a),y:s.r*Math.sin(a),z:0,r:s.r,v:s.v,gmat:false};}
+const planetAt=(d,b)=>GM?GM.pos(d,b):(r=>[r*Math.cos(rad(b?Lm(d):Le(d))),r*Math.sin(rad(b?Lm(d):Le(d))),0])(b?RM:1);
 function drawSys(c,d0,tr,t){
-  const {ctx,w,h}=c,cx=w/2,cy=h/2,k=(Math.min(w,h)/2-22)/1.62;
-  const P=(r,a)=>[cx+k*r*Math.cos(a),cy-k*r*Math.sin(a)];
+  const {ctx,w,h}=c,cx=w/2,cy=h/2,k=(Math.min(w,h)/2-22)/(GM?1.7:1.62);
+  const P=(x,y)=>[cx+k*x,cy-k*y],PR=(r,a)=>P(r*Math.cos(a),r*Math.sin(a));
   ctx.clearRect(0,0,w,h);
   const R=rng(7);ctx.fillStyle='rgba(239,230,217,.35)';for(let i=0;i<70;i++)ctx.fillRect(R()*w,R()*h,1,1);
   ctx.lineWidth=1;ctx.strokeStyle='#3b2e27';
-  for(const r of [1,RM]){ctx.beginPath();ctx.arc(cx,cy,k*r,0,7);ctx.stroke();}
+  /* orbits: the real ellipses from GMAT's ephemeris, or circles in the fallback model */
+  if(GM){for(const [b,days] of [[0,366],[1,687]]){ctx.beginPath();for(let i=0;i<=days;i+=3){const q=GM.pos(d0+i,b),[x,y]=P(q[0],q[1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}}
+  else for(const r of [1,RM]){ctx.beginPath();ctx.arc(cx,cy,k*r,0,7);ctx.stroke();}
   ctx.fillStyle='#f2b84f';ctx.beginPath();ctx.arc(cx,cy,7,0,7);ctx.fill();
-  const le=rad(Le(d0));
-  ctx.setLineDash([5,4]);ctx.strokeStyle='#ea6f3c';ctx.lineWidth=1.6;ctx.beginPath();
-  for(let i=0;i<=60;i++){const nu=tr.nu*i/60,[x,y]=P(tr.p/(1+tr.e*Math.cos(nu)),le+nu);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
-  ctx.stroke();ctx.setLineDash([]);
-  const dot=(r,a,col,rad_,label,hollow)=>{const [x,y]=P(r,a);ctx.beginPath();ctx.arc(x,y,rad_,0,7);if(hollow){ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();}else{ctx.fillStyle=col;ctx.fill();}
+  const g=tr.gm&&GM?GM.get(tr.gm.k,tr.gm.d):null,le=rad(Le(d0));
+  if(g){ /* GMAT's targeted transfer: flown part solid, the rest dashed */
+    const pts=GM.path(g),done=t==null?0:Math.min(pts.length-1,Math.floor(t/GM.meta.step));
+    ctx.strokeStyle='#ea6f3c';ctx.lineWidth=1.8;ctx.setLineDash([]);ctx.beginPath();for(let i=0;i<=done;i++){const [x,y]=P(pts[i][0],pts[i][1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}if(done)ctx.stroke();
+    ctx.setLineDash([5,4]);ctx.beginPath();for(let i=done;i<pts.length;i++){const [x,y]=P(pts[i][0],pts[i][1]);i>done?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='rgba(239,230,217,.6)';ctx.font='9px "Martian Mono",monospace';ctx.textAlign='left';ctx.fillText('TRAJECTORY: NASA GMAT · DE421',8,h-8);}
+  else{ctx.setLineDash([5,4]);ctx.strokeStyle='#ea6f3c';ctx.lineWidth=1.6;ctx.beginPath();
+    for(let i=0;i<=60;i++){const nu=tr.nu*i/60,[x,y]=PR(tr.p/(1+tr.e*Math.cos(nu)),le+nu);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();ctx.setLineDash([]);}
+  const dot=(q,col,rad_,label,hollow)=>{const [x,y]=P(q[0],q[1]);ctx.beginPath();ctx.arc(x,y,rad_,0,7);if(hollow){ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();}else{ctx.fillStyle=col;ctx.fill();}
     if(label){ctx.fillStyle='#efe6d9';ctx.font='10px "Martian Mono",monospace';ctx.textAlign=x>cx?'left':'right';ctx.fillText(label,x+(x>cx?10:-10),y+(y>cy?14:-8));}};
   if(t==null){
-    dot(1,le,'#8fc8da',5,'Earth at launch');
-    dot(RM,rad(Lm(d0)),'#ea6f3c',5,'Mars at launch',true);
-    dot(RM,rad(Lm(d0+tr.T)),'#ea6f3c',6,'Mars on arrival day');
-    const [x,y]=P(RM,le+tr.nu);ctx.strokeStyle='#efe6d9';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-6,y-6);ctx.lineTo(x+6,y+6);ctx.moveTo(x+6,y-6);ctx.lineTo(x-6,y+6);ctx.stroke();
-    ctx.fillStyle='#efe6d9';ctx.textAlign=x>cx?'left':'right';ctx.fillText('You arrive here',x+(x>cx?10:-10),y+(y>cy?26:-20));
+    dot(planetAt(d0,0),'#8fc8da',5,'Earth at launch');
+    dot(planetAt(d0,1),'#ea6f3c',5,'Mars at launch',true);
+    dot(planetAt(d0+tr.T,1),'#ea6f3c',6,'Mars on arrival day');
+    if(!g){const [x,y]=PR(RM,le+tr.nu);ctx.strokeStyle='#efe6d9';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-6,y-6);ctx.lineTo(x+6,y+6);ctx.moveTo(x+6,y-6);ctx.lineTo(x-6,y+6);ctx.stroke();
+      ctx.fillStyle='#efe6d9';ctx.textAlign=x>cx?'left':'right';ctx.fillText('You arrive here',x+(x>cx?10:-10),y+(y>cy?26:-20));}
   }else{
-    dot(1,rad(Le(d0+t)),'#8fc8da',5,'Earth');dot(RM,rad(Lm(d0+t)),'#ea6f3c',6,'Mars');
-    const s=posAt(tr,Math.min(t,tr.T)),[x,y]=P(s.r,le+s.nu);
+    dot(planetAt(d0+t,0),'#8fc8da',5,'Earth');dot(planetAt(d0+t,1),'#ea6f3c',6,'Mars');
+    const s=craftAt({dep:d0,tr},t),[x,y]=P(s.x,s.y);
     ctx.fillStyle='#efe6d9';ctx.beginPath();ctx.arc(x,y,3.5,0,7);ctx.fill();
     ctx.strokeStyle='rgba(239,230,217,.4)';ctx.beginPath();ctx.arc(x,y,9,0,7);ctx.stroke();
   }
@@ -367,8 +468,8 @@ function drawCraft(ctx,x,y,s,o={}){
   ctx.fillStyle='#c9a36a';ctx.fillRect(-14*s,-16*s,28*s,32*s);ctx.strokeStyle='#efe6d9';ctx.strokeRect(-14*s,-16*s,28*s,32*s);
   ctx.fillStyle='#efe6d9';ctx.beginPath();ctx.ellipse(0,-16*s-dish*.45,dish,dish*.45,0,Math.PI,0);ctx.fill();
   ctx.strokeStyle='#efe6d9';ctx.beginPath();ctx.moveTo(0,-16*s);ctx.lineTo(0,-16*s-dish*.9);ctx.stroke();
-  const cols={cam:'#ea6f3c',spec:'#f2b84f',mcs:'#86c994',radar:'#8fc8da'};
-  inst.forEach((k,i)=>{ctx.fillStyle=cols[k];ctx.fillRect((-11+i*6)*s,16*s,4.5*s,(k==='cam'?9:5)*s);});
+  const cols={cam:'#ea6f3c',ctx:'#d98a5c',spec:'#f2b84f',tes:'#e0b070',mcs:'#86c994',radar:'#8fc8da',grs:'#b8a0d8',alt:'#d8d0c0',mag:'#9aa6b0',rad:'#ef5d52'};
+  inst.forEach((k,i)=>{ctx.fillStyle=cols[k]||'#ccc';ctx.fillRect((-13+i*28/Math.max(1,inst.length))*s,16*s,Math.min(4.5,22/Math.max(1,inst.length))*s,(k==='cam'?9:5)*s);});
   ctx.fillStyle='#5a4a3e';ctx.beginPath();ctx.moveTo(-5*s,16*s);ctx.lineTo(5*s,16*s);ctx.lineTo(7*s,21*s);ctx.lineTo(-7*s,21*s);ctx.fill();
   ctx.restore();
 }
@@ -418,11 +519,12 @@ const TERMS={
 };
 const T=(k,label)=>`${label||TERMS[k][0].toLowerCase()}${Help.q(k)}`;
 const PRE={
-  lean:{n:'Lean scout',d:'Cheap, light systems. Leaves room for propellant.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:0},inst:{cam:true,spec:false,mcs:true,radar:true},prop:300,red:false,oxy:'tanks'},
+  lean:{n:'Lean scout',d:'Cheap, light systems. Leaves room for propellant.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:0},inst:{ctx:true,spec:true,mcs:true,radar:true},prop:300,red:false,oxy:'tanks'},
   bal:{n:'Balanced orbiter',d:'Mid-range systems throughout.',sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},inst:{cam:true,spec:true,mcs:true,radar:true},prop:340,red:false,oxy:'regen'},
-  tough:{n:'Tough survivor',d:'Reinforced, redundant and autonomous.',sel:{structure:2,power:1,battery:1,comms:1,engine:1,computer:2,thermal:1},inst:{cam:false,spec:true,mcs:true,radar:true},prop:380,red:true,oxy:'hybrid'}
+  tough:{n:'Tough survivor',d:'Reinforced, redundant and autonomous.',sel:{structure:2,power:1,battery:1,comms:1,engine:1,computer:2,thermal:1},inst:{ctx:true,spec:true,mcs:true,radar:true,rad:true},prop:380,red:true,oxy:'hybrid'}
 };
-function answered(){const o=S.ops,d=(r,k)=>(o.sci[r+k]||0)>0,R3=['jezero','valles','polar'];return {q1:R3.some(r=>d(r,'spec')),q2:R3.some(r=>d(r,'mcs')),q3:d('polar','radar')};}
+function answered(){const o=S.ops,d=(r,k)=>(o.sci[r+k]||0)>0,R3=['jezero','valles','polar'];return {q1:R3.some(r=>d(r,'spec')),q2:R3.some(r=>d(r,'mcs')),q3:d('polar','radar'),
+  p1:R3.some(r=>d(r,'tes')),p2:R3.some(r=>d(r,'tes')),p3:d('polar','grs')};}
 function qTrack(){const a=answered(),row=(ok,q,need)=>`<li><span class="pill ${ok?'go':'warn'}">${ok?'Answered':'Open'}</span> <b>${q}</b> <span class="dim">${need}</span></li>`;
   return `<section class="coach"><p class="kicker">Your three science questions</p><ul class="plain">${row(a.q1,'What do surface minerals reveal?','Needs the spectrometer. Strongest at Jezero Crater.')}${row(a.q2,'How does the atmosphere vary?','Needs the atmospheric profiler. Strongest at the polar cap.')}${row(a.q3,'Is there ice beneath the surface?','Needs the radar over the north polar cap.')}</ul>
   <p class="dim" style="font-size:.9rem"><b>How a pass works:</b> 1. Tap a region on the map. 2. Switch instruments on or off. 3. Press “Fly this pass”. A question is answered once its data reaches Earth.</p></section>`;}
@@ -458,6 +560,7 @@ VIEW.title=()=>{
     <p class="kicker">Mars campaign</p>
     <button class="mcard" id="m1"><span class="mnum">1</span><span class="mt"><b>Orbital Reconnaissance</b><i>Build an orbiter. Choose a landing site.</i></span><span class="pill ${m1?'go':'info'}">${m1?'Done · '+m1.score:'Start'}</span></button>
     <button class="mcard" id="m2"><span class="mnum">2</span><span class="mt"><b>The Red Frontier</b><i>Drive a rover in Jezero Crater. Run an outpost.</i></span><span class="pill ${m2?'go':'info'}">${m2?'Done · '+m2.score:'Start'}</span></button>
+    <button type="button" class="ghost racebtn" id="raceBtn">${window.Race&&Race.inRoom()?'Race room '+Race.code:window.Race&&Race.pending()&&Race.pending().role==='guest'?'Rejoin race '+Race.pending().code:'Race other players'}</button>
     ${sv&&sv.stage&&VIEW[sv.stage]?`<button class="ghost" id="cont">Continue saved mission ${sv.mission||1}</button>`:''}
     <label class="kicker" for="scName">Call sign</label><input id="scName" class="txt" maxlength="18" value="Wayfarer" autocomplete="off">
     <label class="row" for="guided" style="gap:8px"><input type="checkbox" id="guided" checked> <span><b>Guided mode</b></span></label>
@@ -465,11 +568,14 @@ VIEW.title=()=>{
   <section class="slots">${[['Europa','Beneath the Ice'],['Titan','The Outer Worlds'],['Deep space','Beyond the Horizon']].map(m=>`<div class="mission locked" aria-disabled="true"><p class="kicker">${m[0]}</p><h3>${m[1]}</h3><span class="pill warn" style="align-self:flex-start">Locked</span></div>`).join('')}</section>`;
   view3('globe','mars',{},{w:1,h:1,spin:.12,yaw:1.2,pitch:.25},c=>drawGlobe(cv(c,340,340)));
   if($('cont'))$('cont').onclick=()=>{S=sv;RUN++;chrome();setScene(S.stage);VIEW[S.stage]();};
+  $('raceBtn').onclick=()=>{if(!window.Race)return toast('Race mode did not load.');const rp=!Race.inRoom()&&Race.pending();
+    if(rp&&rp.role==='guest'){toast('Rejoining race '+rp.code+'…');Race.rejoin().then(()=>{toast('Back in race '+rp.code+'. Continue your saved mission.');VIEW.title();}).catch(e=>{toast(e.message);try{sessionStorage.removeItem('mcb-race');}catch(_){}VIEW.title();});return;}
+    Race.open(($('scName').value||'').trim());};
   $('m1').onclick=async()=>{startMission(1);pickWindow();
     await Cine.play('prologue',{big:'Orbital Reconnaissance',bigAt:.8,lines:[{text:'Six years ago, ASEA’s Kestrel orbiter reached Mars.'},{text:'Nineteen days into its survey, its power failed. It never called home again.'},
       {who:'reyes',text:'Before anyone lands on Mars, someone has to finish Kestrel’s job. That is you.'}]});
     go('briefing');};
-  $('m2').onclick=()=>{startMission(2);S.m2={site:(CAMP.m1&&CAMP.m1.site)||'floor',fromM1:!!(CAMP.m1&&CAMP.m1.site),survey:(CAMP.m1&&CAMP.m1.survey)||null};go('m2brief');};
+  $('m2').onclick=()=>{startMission(2);S.m2={site:(CAMP.m1&&CAMP.m1.site)||'floor',fromM1:!!(CAMP.m1&&CAMP.m1.site),survey:(CAMP.m1&&CAMP.m1.survey)||null,rover:CAMP.rover?JSON.parse(JSON.stringify(CAMP.rover)):undefined};go('m2brief');};
 };
 
 VIEW.briefing=()=>{
@@ -481,7 +587,7 @@ VIEW.briefing=()=>{
   bindNav(null,'planning');
 };
 
-const LAYER={cam:['Hazards','imaging'],spec:['Minerals','spectro'],mcs:['Weather','profile'],radar:['Subsurface','radar']};
+const LAYER={cam:['Fine imaging','i:cam','CAMERA'],ctx:['Wide imaging','i:ctx','CONTEXT'],spec:['Minerals','i:spec','SPECTRO'],tes:['Thermal','i:tes','THERMAL'],mcs:['Weather','i:mcs','PROFILER'],radar:['Subsurface','i:radar','RADAR'],grs:['Hydrogen','i:grs','GAMMA-N'],alt:['Topography','i:alt','LASER ALT'],mag:['Magnetism','i:mag','MAGNETO'],rad:['Radiation','i:rad','RAD MON']};
 VIEW.planning=()=>{
   main.innerHTML=head(3,'Trajectory','Mission Planning Center','Choose where and when to launch.')+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div>
@@ -500,9 +606,10 @@ VIEW.planning=()=>{
     const phase=Math.abs(wrap(Lm(S.dep)-Le(S.dep))),want=Math.abs(wrap(180-NM*p.tr.T));
     $('planOut').innerHTML=`<div class="row between"><p class="kicker">Flight plan</p><span class="pill ${st[0]}">${st[1]}</span></div>
       <div class="winbox"><p class="kicker">Launch window ${Help.q('window')}</p><b class="num">${dateStr(w[0])} to ${dateStr(w[1])}</b><p class="dim">${w[2]}</p></div>
-      <p>${a<1?'On target.':`Mars will be ${f1(a)}° ${p.miss>0?'ahead of':'behind'} your arrival point.`}</p>
+      <p>${a<1?'On target.':`Mars will be ${f1(a)}° ${p.miss>0?'ahead of':'behind'} your arrival point.`}${p.tr.gm?` The path drawn is GMAT’s, aimed exactly at Mars; closing your ${f1(a)}° gap is part of the speed change below.`:''}</p>
       <div class="tw"><table><tr><th>Your launch date</th><td class="num">${dateStr(S.dep)}</td></tr>
       <tr><th>Arrival</th><td class="num">${dateStr(S.dep+p.tr.T)}</td></tr><tr><th>Travel time</th><td class="num">${f0(p.tr.T)} days</td></tr>
+      <tr><th>Trajectory ${Help.q('gmat')}</th><td class="num">${p.tr.gm?`NASA GMAT · launch energy C3 ${f1(p.tr.gm.c3)} km²/s² · arrives at ${f2(p.tr.gm.vinf)} km/s · ${p.tr.gm.dth<180?'Type I':'Type II'} (${f0(p.tr.gm.dth)}°)`:GM?'No GMAT transfer for this date (outside the windows). Simple model shown.':'Simple model (GMAT data not loaded)'}</td></tr>
       <tr><th>Earth to Mars angle at launch</th><td class="num">${f1(phase)}°</td></tr>
       <tr><th><b style="color:var(--text)">Speed change needed</b> ${Help.q('deltav')}</th><td class="num"><b>${f0(p.need)} m/s</b></td></tr></table></div>
       <p class="dim" style="font-size:.86rem">This route wants Mars about ${f0(want)}° ahead when you leave. Windows repeat about every 780 days because Earth laps Mars.</p>
@@ -530,10 +637,9 @@ VIEW.design=()=>{
   const d0=design();
   main.innerHTML=head(3,'Science and build','Spacecraft Assembly Laboratory','Pick what you want to learn. Then build a spacecraft that can do it.')+`
   <section class="split"><div class="panel">
-    <div class="sys"><div class="lab"><b>Step 1 · Science objectives ${Help.q('imaging')}</b><span class="dim">Every instrument has to earn its mass</span></div>
-      <div class="qlist">${OBJQ.map(q=>`<div class="qrow"><b>${q[0]}</b><span class="dim">${q[2]} · ${q[3]}</span><span class="pill ${S.inst[q[1]]?'go':'warn'}">${S.inst[q[1]]?'Covered':'Needs '+INST[q[1]].name}</span></div>`).join('')}</div></div>
-    <div class="sys" data-sec="inst"><div class="lab"><b>Instruments</b><span class="dim">Mass, cost and power all add up</span></div>
-      <div class="opts">${IK.map(k=>`<button type="button" class="opt" data-inst="${k}" aria-pressed="${S.inst[k]}"><b>${INST[k].name}</b><span class="s">${INST[k].mass} kg · ${money(INST[k].cost)} · ${INST[k].power} W</span></button>`).join('')}</div></div>
+    <div class="sys" data-sec="inst"><div class="lab"><b>Step 1 · Payload ${Help.q('payload')}</b><span class="dim">${SLOTS} mounting positions · ${PAYLOAD_KG} kg allocation</span></div>
+      <div class="objm">${OBJM1.map(o=>`<div class="objrow"><div class="row between"><b>${o.q}</b><span class="dim mono">${o.where}</span></div><p class="need">${o.need}</p><ul class="cov plain" data-cov="${o.id}"></ul></div>`).join('')}</div>
+      <div class="icat" id="icat"></div><div id="cmpTray"></div></div>
     <div class="sys"><div class="lab"><b>Template</b></div>
       <div class="opts">${Object.keys(PRE).map(k=>`<button type="button" class="opt" data-pre="${k}"><b>${PRE[k].n}</b></button>`).join('')}</div></div>
     <div class="sys"><div class="lab"><b>Step 2 · Spacecraft systems</b><span class="dim">Match the hardware to the flight plan</span></div></div>
@@ -548,9 +654,22 @@ VIEW.design=()=>{
   ${navRow(true,'review','Send to review')}`;
   $('readout').innerHTML=`<div class="row between"><p class="kicker">${S.name}</p><span class="pill info" id="modelCap">Drag to turn</span></div><div class="cvwrap"><canvas id="craft"></canvas></div><div id="rbody" class="grid" style="gap:12px"></div>`;
   const cview=view3('craft','craft',craftOpts(),{w:3,h:2,spin:.3,yaw:.7,pitch:.38});
-  const upd=()=>{const d=design(),p=plan(),ck=checks(),bad=ck.filter(x=>x.crit&&!x.ok);{const n=propNeeded();$('propHint').textContent=n.fits?`Needs ${f0(Math.ceil(n.exact/10)*10)} kg`:`Needs ${f0(n.exact)} kg · room for ${f0(Math.max(0,n.room))} kg`;}$('propLab').textContent=`${S.prop} kg · ${money(S.prop*.02)}`;
+  S.cmp=S.cmp||[];
+  const cards=()=>{const d=design();$('icat').innerHTML=IK.map(k=>{const i=INST[k],on=!!S.inst[k],full=!on&&d.on.length>=SLOTS,heavy=!on&&d.payload+i.mass>PAYLOAD_KG,blocked=full||heavy;
+      return `<div class="icard ${on?'on':''} ${blocked?'blocked':''}"><div class="row between"><b>${i.name} ${Help.q('i:'+k)}</b><span class="mono dim">${i.tag}</span></div>
+        <p class="dim">${i.out} · ${i.res}</p><div class="ispec num"><span>${i.mass} kg</span><span>${i.power} W</span><span>${i.data} Gb/pass</span><span>${money(i.cost)}</span></div>
+        <div class="row between"><button type="button" class="opt sm" data-inst="${k}" aria-pressed="${on}" ${blocked?'disabled':''}>${on?'Installed · remove':blocked?(full?'No free position':`${f0(d.payload+i.mass-PAYLOAD_KG)} kg over allocation`):'Install'}</button>
+        <label class="cmpbox"><input type="checkbox" data-cmp="${k}" ${S.cmp.includes(k)?'checked':''}> Compare</label></div></div>`;}).join('');
+    OBJM1.forEach(o=>{const el=main.querySelector(`[data-cov="${o.id}"]`),L=coverage(o.id);el.innerHTML=L.length?L.map(t=>`<li>${t}</li>`).join(''):'<li class="dim">Nothing on board measures this.</li>';});
+    const C=S.cmp.filter(k=>INST[k]);$('cmpTray').innerHTML=C.length>=2?`<div class="cmptray"><div class="row between"><p class="kicker">Side by side</p><button type="button" class="ghost sm" id="cmpX">Clear</button></div><div class="tw"><table class="cmpt"><tr><th></th>${C.map(k=>`<th>${INST[k].name}</th>`).join('')}</tr>
+      ${[['Mass',k=>INST[k].mass+' kg'],['Power',k=>INST[k].power+' W'],['Data per pass',k=>INST[k].data+' Gb'],['Cost',k=>money(INST[k].cost)],['Reliability',k=>Math.round(INST[k].rel*100)+'%'],['Resolution',k=>INST[k].res],['Measures',k=>INST[k].g.meas],['Limits',k=>INST[k].g.lim]].map(r=>`<tr><th>${r[0]}</th>${C.map(k=>`<td>${r[1](k)}</td>`).join('')}</tr>`).join('')}</table></div></div>`:C.length===1?'<p class="dim" style="font-size:.84rem">Tick one more to compare side by side.</p>':'';
+    main.querySelectorAll('[data-inst]').forEach(b=>b.onclick=()=>{const k=b.dataset.inst;S.inst[k]=!S.inst[k];SFX.toggle(S.inst[k]);{const c=$('modelCap');c.textContent=(S.inst[k]?'Installed: ':'Removed: ')+INST[k].name;c.classList.remove('pop');void c.offsetWidth;c.classList.add('pop');}saveGame();upd();});
+    main.querySelectorAll('[data-cmp]').forEach(b=>b.onchange=()=>{const k=b.dataset.cmp;S.cmp=S.cmp.filter(x=>x!==k);if(b.checked){S.cmp.push(k);if(S.cmp.length>3)S.cmp.shift();}cards();});
+    if($('cmpX'))$('cmpX').onclick=()=>{S.cmp=[];cards();};};
+  const upd=()=>{cards();const d=design(),p=plan(),ck=checks(),bad=ck.filter(x=>x.crit&&!x.ok);{const n=propNeeded();$('propHint').textContent=n.fits?`Needs ${f0(Math.ceil(n.exact/10)*10)} kg`:`Needs ${f0(n.exact)} kg · room for ${f0(Math.max(0,n.room))} kg`;}$('propLab').textContent=`${S.prop} kg · ${money(S.prop*.02)}`;
     $('rbody').innerHTML=`
       ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Not ready · ${bad.length}</p><ul class="plain">${bad.map(x=>`<li class="row between"><b>${x.name}</b><span class="row">${howHtml(x,ck.indexOf(x))}</span></li>`).join('')}</ul></div>`:'<div class="issues ok"><p class="kicker" style="color:var(--good)">Ready for review</p></div>'}
+      <div class="paysum"><p class="kicker">Payload ${Help.q('payload')}</p><div class="readouts"><div><span>Positions</span><b class="num">${d.on.length} / ${SLOTS}</b></div><div><span>Instrument mass</span><b class="num" style="color:${d.payload>PAYLOAD_KG?'var(--bad)':'inherit'}">${f0(d.payload)} / ${PAYLOAD_KG} kg</b></div><div><span>Instrument power, all on</span><b class="num">${f0(d.instP)} W</b></div><div><span>Power margin, largest on</span><b class="num" style="color:${d.genM-d.bus-d.maxInst<0?'var(--bad)':'inherit'}">${f0(d.genM-d.bus-d.maxInst)} W</b></div><div><span>Data per pass, all on</span><b class="num">${f1(d.dataPass)} Gb</b></div><div><span>Instrument cost</span><b class="num">${money(d.payCost)}</b></div></div></div>
       ${meter('Launch mass',d.wet,cap(),'kg')}${meter('Cost',d.cost,BUDGET,'','',money)}
       ${meter('Power '+Help.q('power'),d.bus+d.instP,d.genM,'W')}
       ${meter('Speed change: need / have '+Help.q('deltav'),p.need,d.dv,'m/s',p.need>d.dv?'over':p.need*1.1>d.dv?'warn':'ok')}
@@ -561,9 +680,8 @@ VIEW.design=()=>{
     if($('eqHost')&&typeof Eq!=='undefined')Eq.attach($('eqHost'),{dry:d.dry,isp:tier('engine').isp,need:p.need,prop:S.prop,propMax:Math.max(100,cap()-d.dry),genE:d.genE,bus:d.bus,inst:d.maxInst,weeks:Math.round(p.tr.T/7)});
     if(cview)cview.set(craftOpts());else{const c=cv('craft',300,200);c.ctx.clearRect(0,0,300,200);drawCraft(c.ctx,150,105,1.5,{wing:S.sel.power,dish:S.sel.comms,inst:d.on});}chrome();};
   main.querySelectorAll('[data-sys]').forEach(b=>b.onclick=()=>{S.sel[b.dataset.sys]=+b.dataset.i;{const c=$('modelCap');c.textContent=SYS[b.dataset.sys].label+': '+SYS[b.dataset.sys].tiers[+b.dataset.i].n;c.classList.remove('pop');void c.offsetWidth;c.classList.add('pop');}main.querySelectorAll(`[data-sys="${b.dataset.sys}"]`).forEach(x=>x.setAttribute('aria-pressed',x===b));SFX.toggle(true);upd();});
-  main.querySelectorAll('[data-inst]').forEach(b=>b.onclick=()=>{const k=b.dataset.inst;S.inst[k]=!S.inst[k];b.setAttribute('aria-pressed',S.inst[k]);SFX.toggle(S.inst[k]);const row=main.querySelectorAll('.qrow')[IK.indexOf(k)];if(row){const pill=row.querySelector('.pill');pill.className='pill '+(S.inst[k]?'go':'warn');pill.textContent=S.inst[k]?'Covered':'Needs '+INST[k].name;}upd();});
   main.querySelectorAll('[data-oxy]').forEach(b=>b.onclick=()=>{S.oxy=b.dataset.oxy;main.querySelectorAll('[data-oxy]').forEach(x=>x.setAttribute('aria-pressed',x===b));S.prop=propNeeded().load;$('prop').value=S.prop;const lab=main.querySelector('[data-sec="oxy"] .lab .dim');if(lab)lab.textContent=f1(design().o2weeks)+' weeks at this setting';SFX.toggle(true);upd();});
-  main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.inst={...p.inst};S.red=p.red;if(p.oxy)S.oxy=p.oxy;S.prop=propNeeded().load;VIEW.design();});
+  main.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{const p=PRE[b.dataset.pre];S.sel={...p.sel};S.inst=Object.fromEntries(IK.map(k=>[k,!!p.inst[k]]));S.red=p.red;if(p.oxy)S.oxy=p.oxy;S.prop=propNeeded().load;VIEW.design();});
   $('red').onclick=()=>{S.red=!S.red;$('red').setAttribute('aria-pressed',S.red);upd();};
   $('prop').oninput=e=>{S.prop=+e.target.value;upd();};
   $('autoProp').onclick=()=>{const n=propNeeded();S.prop=n.load;$('prop').value=S.prop;upd();toast(n.fits?`Loaded ${S.prop} kg.`:'Tank full. Still not enough.');};
@@ -593,7 +711,7 @@ async function launch(){
   S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?.92:1;
   /* Two rare events are rolled once, when the mission starts, and saved with the state: a rock on a
      collision path (about 1 flight in 40) and a burst water line (about 1 flight in 8). */
-  S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{},rock:Math.random()<.025,toilet:Math.random()<.13};
+  const RC=srnd('cruise');S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{},rock:RC()<.025,toilet:RC()<.13};
   S.cr.sched=makeSchedule(S.cr.N,S.cr.rock,S.cr.toilet);S.crew=crewNew();
   lg(`Launched ${dateStr(S.dep)} on a ${TR[S.transfer].n}, ${f0(d.wet)} kg, ${money(d.cost)}.`);
   const my=++RUN;SFX.thruster(1.6);
@@ -669,8 +787,8 @@ function makeSchedule(N,rock,toilet){
   const list=['comm','storm','water','main','med','power'];
   if(rock)list.push('rock');
   if(toilet)list.push('toilet');
-  for(let i=list.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[list[i],list[j]]=[list[j],list[i]];}
-  return list.map((k,i)=>({k,at:clamp(Math.round((i+1)/(list.length+1)*N+(Math.random()-.5)*N*.08),2,Math.max(2,N-2))})).sort((a,b)=>a.at-b.at);
+  const R=srnd('schedule');for(let i=list.length-1;i>0;i--){const j=R()*(i+1)|0;[list[i],list[j]]=[list[j],list[i]];}
+  return list.map((k,i)=>({k,at:clamp(Math.round((i+1)/(list.length+1)*N+(R()-.5)*N*.08),2,Math.max(2,N-2))})).sort((a,b)=>a.at-b.at);
 }
 async function fireEvent(k){
   if(k==='comm')return evComm();
@@ -679,7 +797,7 @@ async function fireEvent(k){
   if(k==='med')return evMed();
   if(k==='power')return evPower();
   if(k==='toilet')return evToilet();
-  if(k==='rock'){if(S.fl&&S.fl.on.includes('cam'))lg('Navigation camera: a faint object is moving against the stars. Tracking.');
+  if(k==='rock'){if(S.fl&&(S.fl.on.includes('cam')||S.fl.on.includes('ctx')))lg('Navigation camera: a faint object is moving against the stars. Tracking.');
     return lethal('Rock strike',evRock,'The rock went through the spacecraft at 12 kilometers per second.');}
   if(k==='main'){let q;const ok=await lethal('Off course',async()=>{q=await evOffCourse();return q.km<90000;},'The correction left the spacecraft more than 90,000 km wide of Mars, with no propellant plan that could bring it back.');if(ok&&q)await auraScene(q);return;}
 }
@@ -693,14 +811,15 @@ VIEW.cruise=()=>{
   if(!view3('live','craft',craftOpts(),{w:16,h:9,spin:.18,yaw:2.4,pitch:.3}))$('livep').remove();
   if(!S.cr.sched)S.cr.sched=makeSchedule(S.cr.N,!!S.cr.rock,!!S.cr.toilet);
   const c=cv('sys',460,460);
-  const upd=()=>{const t=S.cr.tick*7,s=posAt(f.tr,Math.min(t,f.tr.T));
+  const upd=()=>{const t=Math.min(S.cr.tick*7,f.tr.T),s=craftAt(f,t);
     drawSys(c,f.dep,f.tr,t);
-    const ea=rad(Le(f.dep+t)),sa=rad(Le(f.dep))+s.nu,dist=Math.hypot(s.r*Math.cos(sa)-Math.cos(ea),s.r*Math.sin(sa)-Math.sin(ea))*AU;
+    const E_=planetAt(f.dep+t,0),M_=planetAt(f.dep+t,1),dist=Math.hypot(s.x-E_[0],s.y-E_[1],s.z-E_[2])*AU,dm=Math.hypot(s.x-M_[0],s.y-M_[1],s.z-M_[2])*AU;
     S.cr.v=s.v*1000;
     $('prog').innerHTML=meter(`Day ${Math.min(t,Math.round(f.tr.T))} of ${f0(f.tr.T)}`,Math.min(t,f.tr.T),f.tr.T,'days','ok');
     $('tele').innerHTML=`<p class="kicker">Telemetry</p><div class="tw"><table>
-      <tr><th>Distance from the Sun</th><td class="num">${f2(s.r)} AU</td></tr><tr><th>Signal delay to Earth</th><td class="num">${f1(dist/C_KMS/60)} min</td></tr>
-      <tr><th>Propellant</th><td class="num">${f0(S.prop)} kg</td></tr><tr><th>Spacecraft health</th><td class="num">${f1(S.health)}%</td></tr></table></div>`;
+      <tr><th>Distance from the Sun</th><td class="num">${f2(s.r)} AU</td></tr><tr><th>Speed around the Sun</th><td class="num">${f2(s.v)} km/s</td></tr>
+      <tr><th>Distance from Earth</th><td class="num">${f0(dist/1e6)} million km</td></tr><tr><th>Distance to Mars</th><td class="num">${f0(dm/1e6)} million km</td></tr><tr><th>Signal delay to Earth</th><td class="num">${f1(dist/C_KMS/60)} min</td></tr>
+      <tr><th>Propellant</th><td class="num">${f0(S.prop)} kg</td></tr><tr><th>Spacecraft health</th><td class="num">${f1(S.health)}%</td></tr></table></div>${s.gmat?`<p class="mono dim" style="font-size:.58rem">Position and speed from NASA GMAT ${Help.q('gmat')}</p>`:''}`;
     $('clog').innerHTML=S.log.slice().reverse().map(l=>`<div><b>›</b> ${l}</div>`).join('');chrome();};
   upd();bindCrew();
   (async()=>{const my=RUN,N=S.cr.N;
@@ -773,7 +892,7 @@ function evOffCourse(){return new Promise(res=>{
 async function evPower(){
   const f=S.fl;S.degr=.82;
   const cruiseLoad=f.bus+30,gen=f.genM*S.degr,ok=gen>=cruiseLoad*1.15;
-  const r=await ask({kicker:'Event · power degradation',cls:'alert',title:'A solar array string has failed',body:`<p>This is the same fault that ended Kestrel. Array output dropped 18% and will not recover. You are ${f2(posAt(f.tr,S.cr.tick*7).r)} AU from the Sun, where sunlight is already weaker than at Earth. Output is ${f0(gen)} W at Mars distance against a ${f0(cruiseLoad)} W cruise load.</p>`,choices:[
+  const r=await ask({kicker:'Event · power degradation',cls:'alert',title:'A solar array string has failed',body:`<p>This is the same fault that ended Kestrel. Array output dropped 18% and will not recover. You are ${f2(craftAt(f,S.cr.tick*7).r)} AU from the Sun, where sunlight is already weaker than at Earth. Output is ${f0(gen)} W at Mars distance against a ${f0(cruiseLoad)} W cruise load.</p>`,choices:[
     {label:'Reduce instrument activity',sub:'Skip the remaining in-flight calibrations.',value:'inst'},
     {label:'Shut down nonessential systems',sub:'Turn off survival heaters you can spare and the backup radio.',value:'shut'},
     {label:'Enter power-conservation mode',sub:'Safest for the hardware. You lose a week of tracking data.',value:'safe'},
@@ -916,16 +1035,16 @@ VIEW.ops=()=>{
   const dataNow=act.reduce((s,k)=>s+INST[k].data,0),u=used(),R=REG[o.region];
   const st=!canPower?['nogo','Power short']:u+dataNow>f.store?['warn','Storage will overflow']:deficit>0?['warn',`Battery −${f0(deficit)} Wh`]:['go','Ready'];
   main.innerHTML=head(7,'Orbit operations','Mars orbit')+`
-  <section class="panel task slim"><div class="row between"><p class="kicker">Task · survey Jezero Crater ${Help.q('landing')}</p><div class="row">${IK.map(k=>{const has=(o.cnt['jezero'+k]||0)>0,on=f.on.includes(k);return `<span class="pill ${has?'go':on?'warn':'off'}">${LAYER[k][0]}${has?' ✓':on?'':' ×'}</span>`;}).join('')}</div></div></section>
+  <section class="panel task slim"><div class="row between"><p class="kicker">Task · survey Jezero Crater ${Help.q('landing')}</p><div class="row">${f.on.map(k=>{const has=(o.cnt['jezero'+k]||0)>0;return `<span class="pill ${has?'go':'warn'}">${LAYER[k][0]}${has?' ✓':''}</span>`;}).join('')}</div></div></section>
   <section class="split"><div class="grid"><div class="panel"><div class="cvwrap"><canvas id="map"></canvas>
       ${Object.keys(REG).map(k=>`<button class="hot" data-r="${k}" aria-pressed="${o.region===k}" style="left:${(REG[k].lon+180)/3.6}%;top:${(90-REG[k].lat)/1.8+(k==='polar'?5:0)}%">${REG[k].n}</button>`).join('')}</div>
       <h3>${R.n}</h3>
       <div class="tw"><table><tr><th>Instrument</th><th>Fit here</th><th class="num">Next pass worth</th></tr>
-      ${f.on.map(k=>`<tr><td>${INST[k].name}${o.st[k]!=='ok'?` <span class="pill ${o.st[k]==='off'?'nogo':'warn'}">${o.st[k]==='off'?'off':'degraded'}</span>`:''}</td><td><span class="pips">${[1,2,3,4,5].map(i=>`<i class="${R.aff[k]*5>=i-.01?'on':''}"></i>`).join('')}</span></td><td class="num">${o.st[k]==='off'?'0.0':f1(obsValue(o.region,k))}</td></tr>`).join('')}</table></div></div>
+      ${f.on.map(k=>`<tr><td>${INST[k].name} ${Help.q('i:'+k)}${o.st[k]!=='ok'?` <span class="pill ${o.st[k]==='off'?'nogo':'warn'}">${o.st[k]==='off'?'off':'degraded'}</span>`:''}</td><td><span class="pips">${[1,2,3,4,5].map(i=>`<i class="${R.aff[k]*5>=i-.01?'on':''}"></i>`).join('')}</span></td><td class="num">${o.st[k]==='off'?'0.0':f1(obsValue(o.region,k))}</td></tr>`).join('')}</table></div></div>
     ${crewPanel()}
     <div class="panel"><p class="kicker">Log</p><div class="log">${o.lines.slice().reverse().map(l=>`<div><b>›</b> ${l}</div>`).join('')||'<div>No passes flown yet.</div>'}</div></div></div>
   <div class="panel sticky"><div class="row between"><p class="kicker">Pass ${o.pass} of ${o.N}</p><span class="pill info">Science ${f1(o.delivered)}</span></div>
-    <div class="cpanel inst">${f.on.map(k=>{const on=!!o.on[k]&&o.st[k]!=='off';return `<button class="tsw ${on?'on':''} ${o.st[k]==='deg'?'deg':o.st[k]==='off'?'dead':''}" data-k="${k}" aria-pressed="${on}" ${o.st[k]==='off'?'disabled':''}><span class="tled"></span><span class="tlab">${({cam:'CAMERA',spec:'SPECTRO',mcs:'PROFILER',radar:'RADAR'})[k]}</span><span class="tslot"><i></i></span><span class="tval num">${INST[k].power} W</span><span class="trng">${INST[k].data} Gb</span></button>`;}).join('')}</div>
+    <div class="cpanel inst">${f.on.map(k=>{const on=!!o.on[k]&&o.st[k]!=='off';return `<button class="tsw ${on?'on':''} ${o.st[k]==='deg'?'deg':o.st[k]==='off'?'dead':''}" data-k="${k}" aria-pressed="${on}" ${o.st[k]==='off'?'disabled':''}><span class="tled"></span><span class="tlab">${LAYER[k][2]}</span><span class="tslot"><i></i></span><span class="tval num">${INST[k].power} W</span><span class="trng">${INST[k].data} Gb</span></button>`;}).join('')}</div>
     ${meter('Power '+Help.q('power'),load,avail,'W')}${meter('Battery '+Help.q('eclipse'),o.bat,f.wh,'Wh',o.bat<f.wh*.25?'over':'ok')}
     ${meter('Storage '+Help.q('downlink'),u+dataNow,f.store,'Gb')}
     <div class="row between"><span class="pill ${st[0]}">${st[1]}</span><span class="dim num" style="font-size:.7rem">Downlink ${f.down} Gb / pass</span></div>
@@ -958,15 +1077,16 @@ VIEW.ops=()=>{
 /* Landing site selection: the one decision Mission 1 exists to make. The table shows measurements, never verdicts.
    A column is filled only if that instrument observed Jezero. The values are simulated survey data. */
 const LSITE={delta:['A','Delta front'],floor:['B','Crater floor'],rim:['C','East bench']};
-const SURV={delta:{cam:'Rocks 18% · slopes to 12°',spec:'Dips at 1.9 and 2.3 µm, deep',radar:'Stacked echoes to 40 m',mcs:'Dust 0.6 · wind 6 m/s',drive:'0.3 km'},
-  floor:{cam:'Rocks 5% · slopes to 3°',spec:'One broad dip near 1.0 µm',radar:'One flat echo at 10 m',mcs:'Dust 0.6 · wind 4 m/s',drive:'1.0 km'},
-  rim:{cam:'Rocks 11% · slopes to 19°',spec:'Dips at 2.3 and 2.5 µm',radar:'No clear echo',mcs:'Dust 0.5 · wind 11 m/s',drive:'1.5 km'}};
+const SURV={delta:{cam:'Rocks 18% · slopes to 12°',ctx:'Bright layered scarp, dark sand patches',spec:'Dips at 1.9 and 2.3 µm, deep',tes:'Thermal inertia 420: rocky',radar:'Stacked echoes to 40 m',mcs:'Dust 0.6 · wind 6 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 4° · scarp 60 m',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'0.3 km'},
+  floor:{cam:'Rocks 5% · slopes to 3°',ctx:'Smooth, even plain',spec:'One broad dip near 1.0 µm',tes:'Thermal inertia 260: sand and rock',radar:'One flat echo at 10 m',mcs:'Dust 0.6 · wind 4 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 1°',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'1.0 km'},
+  rim:{cam:'Rocks 11% · slopes to 19°',ctx:'Pale banded slopes',spec:'Dips at 2.3 and 2.5 µm',tes:'Thermal inertia 520: mostly bedrock',radar:'No clear echo',mcs:'Dust 0.5 · wind 11 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 7°',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'1.5 km'}};
 VIEW.site=()=>{const o=S.ops,has=k=>!!o&&(o.cnt['jezero'+k]||0)>0,K=Object.keys(LSITE);
   main.innerHTML=head(8,'Landing site','Mission Planning Center')+`
   <section class="panel task slim"><p class="kicker">Task · choose where the surface crew lands ${Help.q('landing')}</p></section>
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="jz"></canvas></div><p class="mono dim" style="font-size:.6rem">SIMULATED SURVEY · JEZERO CRATER · 18.4° N 77.5° E</p></div>
   <div class="panel"><div class="tw"><table class="survey"><tr><th></th>${K.map(s=>`<th>${LSITE[s][0]} · ${LSITE[s][1]}</th>`).join('')}</tr>
-    ${IK.map(k=>`<tr><th>${LAYER[k][0]} ${Help.q(LAYER[k][1])}</th>${K.map(s=>`<td>${has(k)?SURV[s][k]:'<span class="dim">no data</span>'}</td>`).join('')}</tr>`).join('')}
+    ${(S.fl?S.fl.on:IK).map(k=>`<tr><th>${LAYER[k][0]} ${Help.q(LAYER[k][1])}</th>${K.map(s=>`<td>${has(k)?SURV[s][k]:'<span class="dim">no data</span>'}</td>`).join('')}</tr>`).join('')}
+    ${IK.filter(k=>!(S.fl?S.fl.on:IK).includes(k)).length?`<tr><th class="dim">Not carried</th><td colspan="3" class="dim">${IK.filter(k=>!(S.fl?S.fl.on:IK).includes(k)).map(k=>LAYER[k][0]).join(' · ')}</td></tr>`:''}
     <tr><th>Drive to the layered scarp</th>${K.map(s=>`<td>${SURV[s].drive}</td>`).join('')}</tr></table></div>
     <div class="choices three">${K.map(s=>`<button class="opt" data-ls="${s}" aria-pressed="${S.landing===s}"><b>${LSITE[s][0]}</b><span class="s">${LSITE[s][1]}</span></button>`).join('')}</div>
     <div class="nav" style="border:0;padding:0"><span></span><button class="btn" id="next" ${S.landing?'':'disabled'}>Confirm site</button></div></div></section>`;
@@ -1054,7 +1174,7 @@ function evStorm(){return new Promise(res=>{
   const h=3+(Math.random()*3|0),D0=25*2**h,need=5*h,flip=Math.random()<.5,A='Tanks toward the Sun',B='Equipment bay toward the Sun';
   const opts=[{n:'Dish toward the Sun',s:3},{n:'Instrument deck toward the Sun',s:8,inst:1},{n:flip?A:B,s:need-3},{n:flip?B:A,s:need+1},{n:'Engine toward the Sun',s:need+12,cost:1}].sort(()=>Math.random()-.5);
   const o=mgOpen('Solar storm '+Help.q('storm'),'Turn the spacecraft',`<div class="readouts"><div><span>Unshielded dose</span><b class="num">${D0} rad</b></div><div><span>Electronics limit</span><b class="num">25 rad</b></div><div><span>Dose halves every</span><b class="num">5 g/cm² ${Help.q('radiation')}</b></div></div>
-    <div id="mgT"></div>
+    <div id="mgT"></div>${S.fl&&S.fl.on.includes('rad')?'<p class="dim" style="font-size:.86rem">Radiation monitor: proton flux rising for 25 s before the alarm. You have extra time.</p>':''}
     <div class="choices">${opts.map((x,i)=>`<button class="choice" data-i="${i}"><b>${x.n}</b><span>Shielding <b class="num" style="color:var(--amber)">${x.s} g/cm²</b>${x.cost?' · arrays in shadow':''}${x.inst?' · detectors exposed':''}</span></button>`).join('')}</div>`);
   let done=false;const fin=async i=>{if(done)return;done=true;stop();o.remove();const x=opts[i],dose=x?D0*Math.pow(.5,x.s/5):D0,lv=dose<=25.001?0:dose<=200?1:2,out=[];
     if(S.crew){const add=lv===0?(x&&x.cost?2:7):lv===1?20:35;S.crew.a.forEach(a=>a.rad=clamp(a.rad+add,0,100));if(lv)out.push(`Crew dose +${add}`);}
@@ -1081,7 +1201,7 @@ function evStorm(){return new Promise(res=>{
         ['No braking burn was possible.','With no computer the spacecraft could not turn or fire, so Mars went by.','Shielding is a choice you make in half a minute. Check the grams per square centimetre before you pick.']]);
       return res(false);}
     res(true);};
-  const stop=mgTimer(o.querySelector('#mgT'),S.guided?80:50,()=>fin(-1),'Proton front arrives in');
+  const stop=mgTimer(o.querySelector('#mgT'),(S.guided?80:50)+(S.fl&&S.fl.on.includes('rad')?25:0),()=>fin(-1),'Proton front arrives in');
   o.querySelectorAll('.choice').forEach(b=>b.onclick=()=>fin(+b.dataset.i));
   window.__mini={solve:()=>fin(opts.findIndex(x=>x.s===need+1)),fail:()=>fin(opts.findIndex(x=>x.s===3))};
 });}
@@ -1189,9 +1309,9 @@ function score(){
   const f=S.fl||{},o=S.ops||{delivered:0,collected:0,lost:0,sci:{},store:[]};
   const sci=(r,k)=>o.sci[r+k]||0,any=k=>Object.keys(REG).some(r=>sci(r,k)>0);
   const total=o.collected+o.lost;
-  const obj=[['Reach Mars',!!S.reached,15],['Enter a stable orbit',!!S.orbitOK,25],['Collect atmospheric measurements',any('mcs'),15],
-    ['Map selected surface regions',Object.keys(REG).filter(r=>sci(r,'cam')>0).length>=2,15],
-    ['Investigate evidence of past water',sci('jezero','spec')>0||sci('valles','spec')>0||sci('polar','radar')>0||sci('jezero','radar')>0,15],
+  const obj=[['Reach Mars',!!S.reached,15],['Enter a stable orbit',!!S.orbitOK,25],['Collect atmospheric measurements',any('mcs')||any('tes'),15],
+    ['Map selected surface regions',Object.keys(REG).filter(r=>sci(r,'cam')>0||sci(r,'ctx')>0).length>=2,15],
+    ['Investigate evidence of past water',sci('jezero','spec')>0||sci('valles','spec')>0||sci('polar','radar')>0||sci('jezero','radar')>0||sci('polar','grs')>0||sci('jezero','tes')>0,15],
     ['Transmit data to Earth',total>0&&o.delivered/total>=.8,15]];
   const R=clamp(o.delivered/185*100,0,100),O=obj.reduce((s,x)=>s+(x[1]?x[2]:0),0);
   const lf=f.prop0?S.prop/f.prop0:1;
@@ -1207,6 +1327,7 @@ function score(){
 }
 VIEW.debrief=()=>{
   const sc=score(),f=S.fl,o=S.ops;
+  if(S.race&&window.Race)Race.finish({score:Math.round(sc.S),cls:sc.cls[1],failed:!!S.fail.length});
   if(S.landing&&!S.fail.length){if(!CAMP.m1||sc.S>=(CAMP.m1.score||0))CAMP.m1={score:Math.round(sc.S),cls:sc.cls[1],site:S.landing,survey:S.survey||[]};else{CAMP.m1.site=S.landing;CAMP.m1.survey=S.survey||[];}saveCamp();}
   try{const b=JSON.parse(localStorage.getItem('mcb-rf-best'));if(!b||sc.S>b.s)localStorage.setItem('mcb-rf-best',JSON.stringify({s:Math.round(sc.S),c:sc.cls[1]}));}catch(e){}
   const echo=o&&(o.sci.polarradar||0)>0;
@@ -1470,7 +1591,15 @@ function start(data){
 /* back-to-top button: appears once the page has been scrolled a screen down */
 {const tb=$('topBtn');if(tb){const sh=()=>tb.classList.toggle('show',scrollY>innerHeight*.6);addEventListener('scroll',sh,{passive:true});sh();
   tb.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}}
-window.__game={SITES,OXY,crewTick,get S(){return S},DEMO,go,plan,design,checks,bestDep,pickWindow,windowOf,scanWindows,makeSchedule,boltP,evRock,evToilet,evStorm,gmatScript};
+/* ---------- race hooks (js/race.js) ---------- */
+window.__raceStart=(mission,seed,site,name)=>{const gd=$('guided')?$('guided').checked:true;Voice.stop();
+  S=fresh();S.mission=mission;S.name=name||'Wayfarer';S.guided=gd;S.race={seed,code:window.Race?Race.code:''};store.del('mcb-save');
+  if(mission===2){S.m2={site,fromM1:false,survey:null,rover:CAMP.rover?JSON.parse(JSON.stringify(CAMP.rover)):undefined,seed};go('m2brief');}
+  else{pickWindow();go('briefing');}};
+window.__raceProgress=()=>{let score=0;try{score=S.mission===2?(window.__m2?__m2.score2().total:0):score_();}catch(e){}
+  const t=track(),i=stageIdx(S.stage);return {mission:S.mission,stage:i>=0?t[i][1]:S.stage==='title'?'Menu':S.stage,step:Math.max(0,i)+1,of:t.length,score:Math.round(score),failed:!!(S.dead||S.fail.length)};};
+const score_=()=>{const sc=score();return S.stage==='title'?0:sc.S;};
+window.__game={SITES,OXY,INST,crewTick,get S(){return S},DEMO,go,plan,design,checks,propNeeded,bestDep,pickWindow,windowOf,scanWindows,makeSchedule,boltP,evRock,evToilet,evStorm,gmatScript};
 window.claude?.hot?.snapshot?.(()=>S);
 VIEW.science=VIEW.design; /* old links and old saves land on the merged screen */
 /* No screen in this game submits a form. Making that explicit keeps a stray click from reloading the page. */

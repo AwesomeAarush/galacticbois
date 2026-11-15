@@ -4,57 +4,115 @@
    game.js calls installM2() once, just before it starts. Everything here uses the same state object (S),
    the same navigation (go) and the same helpers as Mission 1. */
 function installM2(){
-  const ROVER_LIMIT=960,PARTS={battery:{std:['Standard battery',0,'Lighter, a little faster'],large:['Extended battery',70,'+40% range']},wheels:{std:['Standard wheels',0,'Best on firm ground'],wide:['Wide wheels',50,'Less sinking in sand']}};
   const m2=()=>S.m2||(S.m2={site:'floor'});
-  const roverMass=()=>880+PARTS.battery[m2().battery||'std'][1]+PARTS.wheels[m2().wheels||'std'][1];
   const TASK='Find rock that formed in water. Bring two samples home.';
+  /* the rover configuration lives in S.m2.rover and is saved with the game on every change */
+  const cfgOf=M=>{if(!M.rover)M.rover=RK.defaults();if(!Array.isArray(M.rover.inst))M.rover.inst=[];return M.rover;};
+  const modelOpts=c=>Object.assign({},c,{backup:c.backup==='yes'});
+  /* Mission 1 found the hazards at the 1 m scale only with the high-resolution camera. Without it the lander
+     comes down off target among rocks it could not see. */
+  const blindLanding=M=>M.fromM1&&!(M.survey||[]).includes('cam');
+  /* a new rover mission: a fresh seed for the ten rock formations, kept until the mission is restarted */
+  const seedOf=M=>{if(!M.seed)M.seed=(Math.random()*2**31)|0;return M.seed;};
 
-  VIEW.m2brief=()=>{const M=m2(),surveyed=M.fromM1;
+  VIEW.m2brief=()=>{const M=m2(),surveyed=M.fromM1;seedOf(M);
     main.innerHTML=head(1,'Mission briefing','ASEA Mission Control')+say('reyes',surveyed?`You chose ${LSITE[M.site][1]}. The crew is down and the rover is fueled. Go and see if you were right.`:'No orbital survey on file, so the crew landed blind. Pick a site and make it work.')+`
     <section class="panel task"><p class="kicker">Your task</p><h3>${TASK} ${Help.q('geology')}</h3>
-      <div class="steps">${['Outfit the rover','Explore Jezero','Analyze and sample','Run the outpost'].map((t,i)=>`<div><b>${i+1}</b><span>${t}</span></div>`).join('')}</div></section>
-    <section class="grid g3"><div class="panel stat"><p class="kicker">Landing site ${Help.q('landing')}</p><b class="num">${LSITE[M.site][1]}</b>${surveyed?'':`<div class="choices three">${Object.keys(LSITE).map(s=>`<button class="opt" data-ls="${s}" aria-pressed="${M.site===s}"><b>${LSITE[s][0]}</b></button>`).join('')}</div>`}</div>
-      <div class="panel stat"><p class="kicker">Sample tubes ${Help.q('sample')}</p><b class="num">6</b></div><div class="panel stat"><p class="kicker">Surface crew ${Help.q('lifesupport')}</p><b class="num">3</b></div></section>
+      <div class="steps">${['Build the rover','Explore Jezero','Analyze and sample','Run the outpost'].map((t,i)=>`<div><b>${i+1}</b><span>${t}</span></div>`).join('')}</div></section>
+    <section class="grid g3"><div class="panel stat"><p class="kicker">Landing site ${Help.q('landing')}</p><b class="num">${LSITE[M.site][1]}</b>${surveyed?'':`<div class="choices three">${Object.keys(LSITE).map(s=>`<button type="button" class="opt" data-ls="${s}" aria-pressed="${M.site===s}"><b>${LSITE[s][0]}</b></button>`).join('')}</div>`}</div>
+      <div class="panel stat"><p class="kicker">Terrain ${Help.q('mobility')}</p><b class="num">${{delta:'Boulders under a layered scarp',floor:'Flat and open, long drives',rim:'Steep pale slopes'}[M.site]}</b></div>
+      <div class="panel stat"><p class="kicker">Rock formations ${Help.q('geology')}</p><b class="num">10 located from orbit</b></div></section>
+    ${blindLanding(M)?`<section class="alertbar">LANDING HAZARDS UNKNOWN AT 1 M SCALE · No high-resolution images of the site were taken</section>`:''}
+    <section class="panel"><p class="kicker">What the mission has to measure</p><div class="objm">${RK.OBJ.map(o=>`<div class="objrow"><div class="row between"><b>${o.q}</b><span class="pill ${o.main?'info':'off'}">${o.main?'Primary':'Extra science'}</span></div><p class="need">${o.need}</p></div>`).join('')}</div></section>
     ${navRow(false,'m2prep','Accept mission')}`;
-    main.querySelectorAll('[data-ls]').forEach(b=>b.onclick=()=>{M.site=b.dataset.ls;VIEW.m2brief();});
+    main.querySelectorAll('[data-ls]').forEach(b=>b.onclick=()=>{M.site=b.dataset.ls;saveGame();VIEW.m2brief();});
     bindNav(null,'m2prep');};
 
-  VIEW.m2prep=()=>{const M=m2();M.battery=M.battery||'std';M.wheels=M.wheels||'std';const mass=roverMass(),over=mass>ROVER_LIMIT,sv=M.survey||[];
-    main.innerHTML=head(2,'Rover preparation','Surface Systems Bay','One upgrade fits. Choose it.')+`
-    <section class="split"><div class="panel"><div class="cvwrap"><canvas id="rvsch"></canvas></div><p class="mono dim" style="font-size:.6rem">3D rover · drag to turn</p>
-      ${meter('Rover mass',mass,ROVER_LIMIT,'kg')}</div>
-    <div class="grid">${Object.keys(PARTS).map(k=>`<div class="panel"><p class="kicker">${k==='battery'?'Battery '+Help.q('rbattery'):'Wheels'}</p><div class="choices two">${Object.keys(PARTS[k]).map(v=>`<button class="opt" data-part="${k}" data-v="${v}" aria-pressed="${M[k]===v}"><b>${PARTS[k][v][0]}</b><span class="s">${PARTS[k][v][1]?'+'+PARTS[k][v][1]+' kg · ':''}${PARTS[k][v][2]}</span></button>`).join('')}</div></div>`).join('')}
-      <div class="panel"><p class="kicker">Site report · ${LSITE[M.site][1]}</p><div class="tw"><table>${IK.map(k=>`<tr><th>${LAYER[k][0]}</th><td>${sv.includes(k)?SURV[M.site][k]:'<span class="dim">no data</span>'}</td></tr>`).join('')}<tr><th>Drive to the scarp</th><td>${SURV[M.site].drive}</td></tr></table></div></div></div></section>
-    ${navRow(true,'rover','Deploy the rover',over,over?'Over the lander limit':'')}`;
-    /* the 3D rover, built from the chosen parts; the 2D schematic is the fallback when WebGL is missing */
-    const wide=M.wheels==='wide',big=M.battery==='large';
-    if(!view3('rvsch','rover',{wheels:M.wheels,battery:M.battery},{w:4,h:3,spin:.3,yaw:.7,pitch:.35})){
-      const c=cv('rvsch',420,250),x=c.ctx;
-      x.save();x.translate(200,125);x.fillStyle='#1c1a19';for(const wx of[-90,0,90])for(const wy of[-78,78]){x.fillRect(wx-26,wy-(wide?17:11),52,wide?34:22);}
-      x.strokeStyle='#8d8a84';x.lineWidth=5;x.beginPath();x.moveTo(-90,-64);x.lineTo(90,-64);x.moveTo(-90,64);x.lineTo(90,64);x.stroke();
-      x.fillStyle='#e9e5dc';x.fillRect(-78,-52,156,104);x.strokeStyle='#6b6964';x.lineWidth=2;x.strokeRect(-78,-52,156,104);x.fillStyle='#22345f';x.fillRect(-58,-38,74,76);
-      x.fillStyle='#4a4744';x.fillRect(-126,-28,48,56);x.fillStyle='#d9a441';x.fillRect(-120,-22,10,44);if(big){x.fillStyle='#3a3836';x.fillRect(-126,-56,48,24);x.fillRect(-126,32,48,24);x.fillStyle='#86c994';x.fillRect(-120,-50,8,12);x.fillRect(-120,38,8,12);}
-      x.strokeStyle='#cfcbc3';x.lineWidth=6;x.beginPath();x.moveTo(40,0);x.lineTo(108,0);x.stroke();x.fillStyle='#f4f1ea';x.fillRect(98,-26,34,52);x.fillStyle='#10141c';x.fillRect(124,-18,10,12);x.fillRect(124,6,10,12);x.restore();
-      x.fillStyle='#a39686';x.font='10px "Martian Mono",monospace';x.fillText('FRONT · camera mast',300,30);x.fillText('REAR · power unit',16,30);
-    }
-    main.querySelectorAll('[data-part]').forEach(b=>b.onclick=()=>{M[b.dataset.part]=b.dataset.v;VIEW.m2prep();});
+  /* ----- the Surface Systems Bay: build the rover ----- */
+  const TABS=['mobility','power','inst','arm','comms','protect','look'],TABL={inst:'Instruments'};
+  const PICK={wheel:'wheel',wsize:'wheel',susp:'susp',clear:'susp',dims:'body',chassis:'body',power:'power',battery:'power',arm:'arm',drill:'drill',store:'store',comms:'comms',dstore:'comms',backup:'backup',therm:'body',dust:'dust',shield:'shield',paint:'body',mark:'look',insig:'look'};
+  VIEW.m2prep=()=>{const M=m2(),c=cfgOf(M);M.tab=M.tab||'mobility';M.cmp=M.cmp||[];const sv=M.survey||[];
+    main.innerHTML=head(2,'Rover preparation','Surface Systems Bay','Build a rover for your landing site. Drag the model to turn it; click a part to open it.')+`
+    <section class="bay"><div class="panel baysee"><div class="row between"><p class="kicker">Rover · ${S.name}</p><div class="row"><button type="button" class="ghost sm" id="zOut" aria-label="Zoom out">−</button><button type="button" class="ghost sm" id="zIn" aria-label="Zoom in">+</button><button type="button" class="ghost sm" id="zRe">Reset view</button></div></div>
+        <div class="cvwrap"><canvas id="rvsch"></canvas></div><p class="mono dim" id="rvPick" style="font-size:.6rem">Drag to turn · scroll or pinch to zoom · click a part</p><div id="rvSpec"></div></div>
+      <div class="baycfg"><div class="tabs" role="tablist">${TABS.map(t=>`<button type="button" role="tab" class="tab" data-tab="${t}" aria-selected="${M.tab===t}">${TABL[t]||RK.CAT[t].label}</button>`).join('')}</div>
+        <div class="panel" id="tabBody"></div>
+        <div class="panel"><p class="kicker">Mission needs and what this rover carries</p><div class="objm" id="capList"></div></div>
+        <div class="panel"><p class="kicker">Site report · ${LSITE[M.site][1]}</p><div class="tw"><table>${(sv.length?sv:['cam','spec','mcs','radar']).map(k=>`<tr><th>${LAYER[k]?LAYER[k][0]:k}</th><td>${sv.includes(k)?SURV[M.site][k]:'<span class="dim">no data</span>'}</td></tr>`).join('')}<tr><th>Drive to the scarp</th><td>${SURV[M.site].drive}</td></tr></table></div></div></div></section>
+    ${navRow(true,'rover','Deploy the rover')}`;
+    const view=view3('rvsch','rover',modelOpts(c),{w:4,h:3,spin:.18,yaw:.9,pitch:.32,zoom:true,pick:pk=>{const t=pk.tab==='chassis'?'mobility':pk.tab;if(TABS.includes(t)){M.tab=t;drawTab();}$('rvPick').textContent='Selected: '+pk.label;view&&view.highlight(pk.key);
+      const el=main.querySelector(`[data-pk="${pk.key}"]`);if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});}});
+    if(view){$('zIn').onclick=()=>view.zoomBy(1.2);$('zOut').onclick=()=>view.zoomBy(1/1.2);$('zRe').onclick=()=>{view.zoom=1;view.yaw=.9;view.pitch=.32;view.highlight(null);};}
+    else{['zIn','zOut','zRe'].forEach(id=>$(id).hidden=true);const cc=cv('rvsch',420,250);cc.ctx.fillStyle='#a39686';cc.ctx.font='12px "Martian Mono",monospace';cc.ctx.fillText('3D view unavailable on this device',90,125);}
+    const fmt=(v,d=0)=>v.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});
+    /* the spec panel; with a proposed change it shows the difference next to each number */
+    const spec=(alt)=>{const s=RK.spec(c),p=alt?RK.spec(alt):null,dl=(k,dec=0,unit='',better=1)=>{if(!p)return '';const d=p[k]-s[k];if(Math.abs(d)<Math.pow(10,-dec)/2)return '';const good=d*better>0;return ` <i class="dlt ${good?'up':'down'}">${d>0?'+':''}${fmt(d,dec)}${unit}</i>`;};
+      const ck=RK.checks(p||s),bad=ck.filter(x=>!x.ok&&x.hard);const S2=p||s;
+      $('rvSpec').innerHTML=`${p?'<p class="kicker" style="color:var(--amber)">Proposed change</p>':''}
+        ${meter('Mass'+dl('mass',0,' kg',-1),S2.mass,S2.limit,'kg')}${meter('Cost'+dl('cost',1,'M',-1),S2.cost,S2.budget,'','',v=>'$'+v.toFixed(1)+'M')}
+        <div class="readouts">
+          <div><span>Daylight power ${Help.q('rpower')}</span><b class="num">${fmt(S2.genDay)} W${dl('genDay',0,' W')}</b></div>
+          <div><span>Standing load</span><b class="num">${fmt(S2.run)} W${dl('run',0,' W',-1)}</b></div>
+          <div><span>Battery</span><b class="num">${fmt(S2.batWh)} Wh${dl('batWh',0,' Wh')}</b></div>
+          <div><span>Drive energy</span><b class="num">${fmt(S2.drive,1)} Wh/100 m${dl('drive',1,'',-1)}</b></div>
+          <div><span>Top speed</span><b class="num">${fmt(S2.speedCm,1)} cm/s${dl('speedCm',1,'')}</b></div>
+          <div><span>Speed in sand</span><b class="num">${fmt(S2.sandK*100)}%${dl('sandK',2,'')}</b></div>
+          <div><span>Rock clearance</span><b class="num">${fmt(S2.clearM,2)} m${dl('clearM',2,' m')}</b></div>
+          <div><span>Stability</span><b class="num">${fmt(S2.stab*100)}%${dl('stab',2,'')}</b></div>
+          <div><span>Reliability</span><b class="num">${fmt(S2.rel*100,1)}%${dl('rel',3,'')}</b></div>
+          <div><span>Data storage</span><b class="num">${fmt(S2.storeMB/1000,0)} GB</b></div></div>
+        <div class="mounts">${Object.keys(S2.capM).map(m=>`<span class="pill ${S2.used[m]>S2.capM[m]?'nogo':S2.used[m]===S2.capM[m]?'warn':'info'}">${RK.MOUNT[m].label} ${S2.used[m]}/${S2.capM[m]}</span>`).join('')}</div>
+        <details class="how"><summary>More numbers</summary><div class="readouts"><div><span>Heaters</span><b class="num">${fmt(S2.heat)} W</b></div><div><span>Solar at noon</span><b class="num">${fmt(S2.peak)} W</b></div><div><span>Generator</span><b class="num">${fmt(S2.rtg)} W</b></div>
+          <div><span>Climbing factor</span><b class="num">×${fmt(S2.climb,2)}</b></div><div><span>Damage taken</span><b class="num">×${fmt(S2.tough,2)}</b></div><div><span>Turning</span><b class="num">×${fmt(S2.turn,2)}</b></div>
+          <div><span>Direct-to-Earth</span><b class="num">${fmt(S2.dte,1)} MB/s</b></div><div><span>Relay passes</span><b class="num">${S2.relay?fmt(S2.relay)+' MB/s':'none'}</b></div></div></details>
+        ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Cannot deploy · ${bad.length}</p><ul class="plain">${bad.map(x=>`<li><b>${x.n}</b> <span class="dim">${x.d}</span></li>`).join('')}</ul></div>`:''}
+        ${ck.filter(x=>!x.ok&&!x.hard).map(x=>`<p class="dim" style="font-size:.82rem"><span class="pill warn">Caution</span> ${x.n}: ${x.d}</p>`).join('')}`;
+      if(!alt){const nb=$('next');if(nb){nb.disabled=bad.length>0;const nt=main.querySelector('.nav .note');}}};
+    const caps=()=>{const s=RK.spec(c);$('capList').innerHTML=RK.OBJ.map(o=>{const L=RK.capLines(s,o.id);return `<div class="objrow"><div class="row between"><b>${o.q}</b><span class="pill ${o.main?'info':'off'}">${o.main?'Primary':'Extra'}</span></div><p class="need">${o.need}</p><ul class="cov plain">${L.length?L.map(t=>`<li>${t}</li>`).join(''):'<li class="dim">Nothing fitted does this.</li>'}</ul></div>`;}).join('');};
+    const apply=()=>{CAMP.rover=c;saveCamp();saveGame();if(view)view.set(modelOpts(c));spec();caps();drawTab();};
+    function drawTab(){main.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===M.tab));const T=M.tab,el=$('tabBody');
+      if(T==='inst'){const s=RK.spec(c);
+        el.innerHTML=`<div class="row between"><p class="kicker">Instruments ${Help.q('rpayload')}</p><span class="dim" style="font-size:.84rem">${c.inst.length} fitted</span></div>`+
+          Object.keys(RK.MOUNT).map(m=>`<div class="mgroup"><p class="kicker" style="color:var(--dim)">${RK.MOUNT[m].label} · ${s.used[m]}/${s.capM[m]} ${m==='arm'?'(the drill uses one)':''}</p><div class="icat">${RK.IKEYS.filter(k=>RK.INS[k].mount===m).map(k=>{const i=RK.INS[k],on=c.inst.includes(k),why=RK.blocked(c,k);
+            return `<div class="icard ${on?'on':''} ${why?'blocked':''}" data-pk="${k}" data-hov="${k}"><div class="row between"><b>${i.n} ${Help.q('r:'+k)}</b><span class="mono dim">${i.tag}</span></div>
+              <div class="ispec num"><span>${i.mass} kg</span><span>${i.run?i.run+' W on':i.use.wh?i.use.wh+' Wh/use':'—'}</span><span>${i.use.mb?i.use.mb+' MB/use':'—'}</span><span>$${i.cost}M</span>${i.units>1?`<span>${i.units} units</span>`:''}</div>
+              <div class="row between"><button type="button" class="opt sm" data-ins="${k}" aria-pressed="${on}" ${why?'disabled':''}>${on?'Fitted · remove':why||'Fit'}</button><label class="cmpbox"><input type="checkbox" data-rcmp="${k}" ${M.cmp.includes(k)?'checked':''}> Compare</label></div></div>`;}).join('')}</div></div>`).join('')+`<div id="rcmpTray"></div>`;
+        const C=M.cmp.filter(k=>RK.INS[k]);$('rcmpTray').innerHTML=C.length>=2?`<div class="cmptray"><div class="row between"><p class="kicker">Side by side</p><button type="button" class="ghost sm" id="rcmpX">Clear</button></div><div class="tw"><table class="cmpt"><tr><th></th>${C.map(k=>`<th>${RK.INS[k].n}</th>`).join('')}</tr>
+          ${[['Mount',k=>RK.MOUNT[RK.INS[k].mount].label],['Mass',k=>RK.INS[k].mass+' kg'],['Power',k=>RK.INS[k].run?RK.INS[k].run+' W while on':RK.INS[k].use.wh+' Wh per use'],['Data',k=>RK.INS[k].use.mb?RK.INS[k].use.mb+' MB per use':'small'],['Cost',k=>'$'+RK.INS[k].cost+'M'],['Reliability',k=>Math.round(RK.INS[k].rel*100)+'%'],['Resolution',k=>RK.INS[k].res],['Measures',k=>RK.INS[k].g.meas],['Limits',k=>RK.INS[k].g.lim]].map(r=>`<tr><th>${r[0]}</th>${C.map(k=>`<td>${r[1](k)}</td>`).join('')}</tr>`).join('')}</table></div></div>`:C.length===1?'<p class="dim" style="font-size:.84rem">Tick one more to compare.</p>':'';
+        el.querySelectorAll('[data-ins]').forEach(b=>b.onclick=()=>{const k=b.dataset.ins;c.inst=c.inst.includes(k)?c.inst.filter(x=>x!==k):c.inst.concat(k);SFX.toggle(c.inst.includes(k));if(view)view.highlight(k);apply();});
+        el.querySelectorAll('[data-rcmp]').forEach(b=>b.onchange=()=>{const k=b.dataset.rcmp;M.cmp=M.cmp.filter(x=>x!==k);if(b.checked){M.cmp.push(k);if(M.cmp.length>3)M.cmp.shift();}drawTab();});
+        if($('rcmpX'))$('rcmpX').onclick=()=>{M.cmp=[];drawTab();};
+        el.querySelectorAll('[data-hov]').forEach(d=>{const k=d.dataset.hov;d.onmouseenter=()=>{if(view)view.highlight(k);const on=c.inst.includes(k);if(!RK.blocked(c,k))spec(Object.assign({},c,{inst:on?c.inst.filter(x=>x!==k):c.inst.concat(k)}));};d.onmouseleave=()=>spec();});}
+      else{const cat=RK.CAT[T];
+        el.innerHTML=`<div class="row between"><p class="kicker">${cat.label} ${Help.q(cat.help)}</p></div>`+Object.keys(cat.groups).map(g=>{const G=cat.groups[g],f=RK.fieldOf(T,g);
+          return `<div class="cgroup" data-pk="${PICK[f]||''}"><p class="kicker" style="color:var(--dim)">${G.label}</p><div class="opts">${Object.keys(G.opts).map(v=>{const o=G.opts[v],on=String(c[f])===String(v);
+            return `<button type="button" class="opt" data-f="${f}" data-v="${v}" aria-pressed="${on}"><b>${o.n}</b>${o.s?`<span class="s">${o.s}</span>`:''}<span class="s num">${o.mass?`${o.mass>0?'+':''}${Math.round(o.mass*(g==='wheel'?({s:.85,m:1,l:1.18}[c.wsize]):1))} kg`:''}${o.cost?` · $${o.cost}M`:''}</span></button>`;}).join('')}</div></div>`;}).join('');
+        el.querySelectorAll('[data-f]').forEach(b=>{const f=b.dataset.f,v=b.dataset.v,val=f==='store'?+v:v;
+          b.onclick=()=>{c[f]=val;SFX.toggle(true);if(view)view.highlight(PICK[f]);apply();};
+          b.onmouseenter=()=>{if(view)view.highlight(PICK[f]);if(String(c[f])!==String(v))spec(Object.assign({},c,{[f]:val}));};b.onmouseleave=()=>spec();
+          b.onfocus=b.onmouseenter;b.onblur=b.onmouseleave;});}}
+    main.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{M.tab=b.dataset.tab;drawTab();});
+    spec();caps();drawTab();
     bindNav('m2brief','rover');};
 
-  VIEW.rover=()=>{const M=m2(),my=RUN;
+  VIEW.rover=()=>{const M=m2(),my=RUN,c=cfgOf(M),sp=RK.spec(c),bl=blindLanding(M);
     main.innerHTML=head(3,'Surface expedition','Jezero Crater, Mars')+`<section class="panel task slim"><p class="kicker">Task · ${TASK}</p></section><div id="rvhost"></div>`;
-    Rover.start({root:$('rvhost'),site:M.site,loadout:{battery:M.battery,wheels:M.wheels},sol:1}).then(async res=>{if(my!==RUN)return;M.exp=res;
+    const snap=Models.snapshot&&Models.snapshot('rover',modelOpts(c),{w:256,h:256,top:true});
+    Rover.start({root:$('rvhost'),site:M.site,seed:seedOf(M),spec:sp,sol:1,sprite:snap,blind:bl,relayM1:!!M.fromM1,resume:M.rv||null,
+      save:st=>{M.rv=st;saveGame();}}).then(async res=>{if(my!==RUN)return;M.exp=res;M.rv=null;
       if(res.stranded){await tell('Rover lost','Stranded','<p>The battery ran out before base. The samples stay with the rover.</p>','Continue');M.exp.returned=[];}else M.exp.returned=res.samples;
       saveGame();go('outpost');});};
 
   /* ----- the outpost: five sols of power, water and oxygen ----- */
   const MOD={life:['LIFE SUP',35,'lifesupport',true],heat:['HEATERS',15,'',false],water:['WATER ISRU',25,'isru',false],o2:['O2 PLANT',20,'isru',false],lab:['LAB',20,'libs',false]};
   const DUST=[1,1,.42,.6,1],SOLAR=100;
-  function outNew(M){const hyd=(M.exp&&M.exp.returned||[]).some(s=>['mud','sulf','carb'].includes(s.truth));
+  function outNew(M){const hyd=(M.exp&&M.exp.returned||[]).some(s=>s.kind!=='soil'&&['mud','sulf','carb'].includes(s.truth));
     return {sol:1,N:5,water:60,o2:60,bat:40,lab:0,crew:100,equip:100,feed:hyd?1.3:.75,hyd,sw:{life:true,heat:true,water:false,o2:false,lab:false},w0:60,o0:60,out:0,log:[]};}
   VIEW.outpost=()=>{const M=m2(),o=M.out||(M.out=outNew(M)),eff=DUST[o.sol-1]??1,supply=SOLAR*eff,draw=Object.keys(MOD).reduce((s,k)=>s+(o.sw[k]?MOD[k][1]:0),0),short=draw-supply,ok=short<=o.bat,todo=(M.exp&&M.exp.returned||[]).length-o.lab;
     main.innerHTML=head(4,'Outpost','Jezero Base')+`
     <section class="panel task slim"><div class="row between"><p class="kicker">Task · end sol ${o.N} with more water and oxygen than you started with ${Help.q('isru')}</p><span class="pill info">Sol ${Math.min(o.sol,o.N)} of ${o.N}</span></div></section>
     ${eff<1?`<section class="alertbar">POWER OUTPUT REDUCED · Solar array efficiency ${Math.round(eff*100)}% ${Help.q('dust')}</section>`:''}
+    ${o.sol===2&&M.rover&&(M.rover.inst||[]).includes('env')?`<section class="alertbar">FORECAST FROM THE ROVER’S WEATHER STATION · Dust storm expected tomorrow, solar output near 42% ${Help.q('dust')}</section>`:''}
     <section class="split"><div class="grid"><div class="panel"><div class="cvwrap"><canvas id="opc"></canvas></div></div>
       <div class="panel"><p class="kicker">Log</p><div class="log">${o.log.slice().reverse().map(l=>`<div><b>›</b> ${l}</div>`).join('')||'<div>Sol 1. Outpost systems online.</div>'}</div></div></div>
     <div class="panel sticky"><p class="kicker">Power distribution</p>
@@ -88,15 +146,24 @@ function installM2(){
   };
 
   function score2(){const M=m2(),e=M.exp||{samples:[],scans:[],main:[],opt:[],battery:0,cond:0,photos:0,found:0,dist:0,explored:0},o=M.out||outNew(M),ret=e.returned||[];
-    const sci=clamp(ret.length*11+ret.filter(s=>s.right).length*6+new Set(ret.map(s=>s.truth)).size*5+e.scans.length*4+e.photos*2+o.lab*5,0,100);
+    const X=e.extras||{},rock=ret.filter(s=>s.kind!=='soil'),sci=clamp(rock.length*11*(1)+ret.filter(s=>s.kind==='soil').length*3-rock.filter(s=>s.kind==='powder').length*2+rock.filter(s=>s.right).length*6+new Set(rock.map(s=>s.truth)).size*5+e.scans.length*4+e.photos*2+o.lab*5+(X.gpr?6:0)+(X.wx?4:0)+(X.dose?4:0)+(X.lab?6:0)+(X.micro?Math.min(6,X.micro*2):0)+(X.atmo?1:0),0,100);
     const main_=e.main.length?e.main.filter(x=>x[1]).length/e.main.length*100:0,opt=e.opt.length?e.opt.filter(x=>x[1]).length/e.opt.length*100:0;
     const obj=main_*.8+opt*.2,res=e.stranded?0:clamp(e.battery*1.6,0,60)+e.cond*.4,net=(o.water-o.w0)+(o.o2-o.o0);
     const outp=clamp(50+net*1.2,0,100)*(o.crew<100?.6:1)*(o.equip<100?.85:1),total=.4*sci+.25*obj+.15*res+.2*outp;
     const cls=total>=85?'Outstanding expedition':total>=70?'Expedition success':total>=50?'Partial success':'Expedition fell short';
     return {sci,obj,res,outp,total,cls,sustain:o.water>=o.w0&&o.o2>=o.o0,water:ret.some(s=>CLSOK(s))};}
-  const CLSOK=s=>['mud','sand','carb','sulf'].includes(s.truth)&&s.right;
+  const CLSOK=s=>s.kind!=='soil'&&['mud','sand','carb','sulf'].includes(s.truth)&&s.right;
 
+  /* how the rover design showed up in the field: facts, not grades */
+  function roverNote(M){const c=M.rover;if(!c)return '';const s=RK.spec(c),e=M.exp||{},L=[];
+    if(!s.can.photo)L.push('No panoramic camera: outcrops were never photographed.');if(!s.can.chem&&!s.can.contact)L.push('No spectrometer: no rock chemistry was possible.');
+    if(c.arm==='none')L.push('No arm: no samples could be taken.');else if(c.drill==='scoop')L.push('The soil scoop cannot cut bedrock, so samples were loose soil.');
+    if(s.can.lab&&!(e.extras||{}).lab)L.push('The onboard lab flew but analyzed nothing.');if((c.inst||[]).includes('lab')&&c.drill!=='powder')L.push('The onboard lab needs rock powder; the drill fitted made cores.');
+    if((c.inst||[]).includes('seis'))L.push('The seismometer recorded only rover noise: it needs to sit still for weeks.');if((c.inst||[]).includes('mag'))L.push('The magnetometer read mostly the rover’s own currents.');
+    if((e.faults||[]).length)L.push(`${e.faults.length} fault${e.faults.length>1?'s':''} on the drive (rover reliability ${f1(s.rel*100)}%).`);
+    return L.length?`<p class="kicker" style="margin-top:8px">Rover design in the field</p><ul class="plain">${L.map(t=>`<li>${t}</li>`).join('')}</ul>`:'';}
   VIEW.m2debrief=()=>{const M=m2(),e=M.exp||{samples:[],scans:[],main:[],opt:[],battery:0,cond:0,photos:0,found:0,dist:0,explored:0,log:[]},o=M.out||outNew(M),sc=score2(),ret=e.returned||[];
+    if(S.race&&window.Race)Race.finish({score:Math.round(sc.total),cls:sc.cls,failed:false});
     if(!CAMP.m2||sc.total>=(CAMP.m2.score||0)){CAMP.m2={score:Math.round(sc.total),cls:sc.cls};saveCamp();}
     const obj=x=>`<div class="obj ${x[1]?'done':''}"><i></i><span>${x[0]}</span></div>`;
     main.innerHTML=head(5,'Debrief','ASEA Science Operations Center')+`
@@ -105,16 +172,17 @@ function installM2(){
       <p class="num" style="font-size:.72rem">S = 0.40×${f0(sc.sci)} science + 0.25×${f0(sc.obj)} objectives + 0.15×${f0(sc.res)} rover + 0.20×${f0(sc.outp)} outpost</p></div></div></section>
     <section class="grid g2"><div class="panel"><p class="kicker">Expedition</p><div class="readouts">
         <div><span>Distance</span><b class="num">${f0(e.dist)} m</b></div><div><span>Area mapped</span><b class="num">${f0(e.explored*100)}%</b></div><div><span>Formations found</span><b class="num">${e.found}</b></div><div><span>Photographs</span><b class="num">${e.photos}</b></div>
-        <div><span>Battery at dock</span><b class="num">${e.stranded?'0':f0(e.battery)}%</b></div><div><span>Rover condition</span><b class="num">${f0(e.cond)}%</b></div></div>
+        <div><span>Battery at dock</span><b class="num">${e.stranded?'0':f0(e.battery)}%</b></div><div><span>Rover condition</span><b class="num">${f0(e.cond)}%</b></div><div><span>Data sent home</span><b class="num">${f1((e.sent||0)/1000)} GB</b></div><div><span>Faults</span><b class="num">${(e.faults||[]).length}</b></div></div>
+        ${roverNote(M)}
         <p class="kicker" style="margin-top:8px">Objectives</p>${e.main.map(obj).join('')}<p class="kicker" style="margin:6px 0 2px;color:var(--dim)">Optional</p>${e.opt.map(obj).join('')}</div>
-      <div class="panel"><p class="kicker">Samples returned · ${ret.length}</p><div class="tw"><table>${ret.map(s=>`<tr><td class="num">${s.id}</td><td>${s.site}<div class="dim" style="font-size:.76rem">${s.time} · ${s.grid}</div></td><td>${s.cls}<div style="font-size:.76rem;color:${s.right?'var(--good)':'var(--amber)'}">Lab: ${Rover.CLS[s.truth].label}</div></td></tr>`).join('')||'<tr><td class="dim">None.</td></tr>'}</table></div>
+      <div class="panel"><p class="kicker">Samples returned · ${ret.length}</p><div class="tw"><table>${ret.map(s=>`<tr><td class="num">${s.id}</td><td>${s.site}<div class="dim" style="font-size:.76rem">${s.time} · ${s.grid} · ${s.kind||'core'}${s.labText?' · onboard lab: '+s.labText:''}</div></td><td>${s.cls}<div style="font-size:.76rem;color:${s.right?'var(--good)':'var(--amber)'}">Lab: ${Rover.CLS[s.truth].label}</div></td></tr>`).join('')||'<tr><td class="dim">None.</td></tr>'}</table></div>
         <p class="kicker" style="margin-top:8px">Laser analyses · simulated values, weight %</p><div class="tw"><table>${e.scans.map(a=>`<tr><td>${a.name}</td><td class="num">${Object.keys(a.v).map(k=>`${k} ${f0(a.v[k])}`).join(' · ')}</td></tr>`).join('')||'<tr><td class="dim">None.</td></tr>'}</table></div>
         <p class="kicker" style="margin-top:8px">Outpost after ${o.N} sols</p><div class="readouts"><div><span>Water</span><b class="num">${f0(o.water)}% (${o.water>=o.w0?'+':''}${f0(o.water-o.w0)})</b></div><div><span>Oxygen</span><b class="num">${f0(o.o2)}% (${o.o2>=o.o0?'+':''}${f0(o.o2-o.o0)})</b></div><div><span>Lab analyses</span><b class="num">${o.lab}</b></div></div></div></section>
     <section class="panel"><div class="two"><div class="sim"><p class="kicker" style="color:var(--rust)">In this game</p><p style="font-size:.9rem">The terrain, rock positions and chemistry values are simulated. Rock types and where they sit follow published descriptions of Jezero.</p></div>
       <div class="ref"><p class="kicker" style="color:var(--ice)">What NASA’s Perseverance found</p><p style="font-size:.9rem">The crater floor is igneous rock, some of it rich in olivine and later altered by water. The delta front is sedimentary sandstone and mudstone, with sulfate minerals. Rock near the rim is rich in carbonate. Its MOXIE experiment made about 122 g of oxygen from Martian air.</p></div></div></section>
     <div class="nav"><button class="ghost" id="again">Main menu</button><button class="btn" id="redo">Fly it again</button></div>`;
     $('again').onclick=()=>{S=fresh();go('title');};
-    $('redo').onclick=()=>{const nm=S.name,gd=S.guided,site=M.site,fm=M.fromM1,sv=M.survey;S=fresh();S.mission=2;S.name=nm;S.guided=gd;S.m2={site,fromM1:fm,survey:sv};go('m2brief');};
+    $('redo').onclick=()=>{const nm=S.name,gd=S.guided,site=M.site,fm=M.fromM1,sv=M.survey;const rv=M.rover;S=fresh();S.mission=2;S.name=nm;S.guided=gd;S.m2={site,fromM1:fm,survey:sv,rover:rv};go('m2brief');};
   };
   window.__m2={score2};
 }

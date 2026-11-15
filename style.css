@@ -683,3 +683,95 @@ header.bar{gap:8px}.track{min-width:150px}
 .meter .t .num{white-space:nowrap}
 .eqtabs .ghost{width:auto;flex:0 0 auto}
 .eqrow b{white-space:nowrap}
+
+/* ================= instrument workstation, rover bay, rover map ================= */
+.sm{padding:5px 10px;font-size:.78rem;min-height:0}
+.opt.sm{display:inline-flex;flex-direction:row;align-items:center;justify-content:center;flex:0 0 auto;padding:6px 10px;font-size:.78rem}
+.opt.sm[aria-pressed="true"]{color:var(--text)}
+.opt.sm:disabled,.opt:disabled{opacity:.55;cursor:not-allowed}
+/* help pop-up: subtitle, spec grid, inline diagram */
+.hsub{font-size:.62rem;color:var(--amber);letter-spacing:.04em;margin-top:-4px}
+.hspec{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.hspec>div{display:grid;gap:1px;background:#0d0a09;padding:6px 8px}
+.hspec span{font:.54rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.hspec b{font-size:.78rem;font-weight:500;color:var(--ice);overflow-wrap:anywhere}
+.helpcard{width:min(520px,100%)}
+.hdraw.now .hdia{margin-top:0}
+@media (max-width:520px){.hspec{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* objectives stated as measurements */
+.objm{display:grid;gap:8px}
+.objrow{border:1px solid var(--line);border-radius:2px;padding:8px 10px;background:rgba(13,10,9,.55);display:grid;gap:4px}
+.objrow .need{font-size:.86rem;color:var(--dim);margin:0}
+.objrow .cov{font-size:.8rem;margin:0;padding-left:16px;color:var(--ice)}
+.objrow .cov li.dim{color:var(--dim);list-style:none;margin-left:-16px}
+/* instrument catalog cards */
+.icat{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:8px;margin-top:8px}
+.icard{display:grid;gap:6px;padding:10px 12px;border:1px solid rgba(239,230,217,.12);border-radius:2px;background:rgba(36,28,24,.72);transition:border-color .2s,background .2s}
+.icard>.row b{font-weight:600;line-height:1.25}
+.icard .mono{font-size:.56rem;white-space:nowrap}
+.icard p{font-size:.8rem;margin:0}
+.icard.on{border-color:var(--rust);box-shadow:inset 3px 0 0 var(--rust);background:rgba(234,111,60,.12)}
+.icard.blocked{opacity:.62;border-style:dashed}
+.ispec{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.66rem;color:var(--dim)}
+.ispec span{white-space:nowrap}
+.cmpbox{display:inline-flex;gap:5px;align-items:center;font:.6rem var(--mono);color:var(--dim);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.cmptray{margin-top:10px;border:1px solid var(--ice);border-radius:2px;padding:8px 10px;background:rgba(13,10,9,.8)}
+.cmpt th{font:600 .6rem var(--mono);color:var(--amber);text-transform:uppercase;letter-spacing:.06em;text-align:left;vertical-align:top}
+.cmpt td{font-size:.8rem;vertical-align:top;min-width:140px}
+.paysum{border-bottom:1px solid var(--line);padding-bottom:10px}
+/* the rover bay */
+.bay{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:14px;align-items:start}
+.baysee{position:sticky;top:76px;display:grid;gap:8px}
+.baycfg{display:grid;gap:12px;min-width:0}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.tab{background:none;border:1px solid transparent;border-radius:2px 2px 0 0;padding:6px 10px;font:600 .66rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.tab:hover{color:var(--text);border-color:var(--line)}
+.tab[aria-selected="true"]{color:var(--text);border-color:var(--rust);background:rgba(234,111,60,.12)}
+.cgroup,.mgroup{display:grid;gap:6px;margin-top:10px}
+.cgroup:first-of-type{margin-top:4px}
+.dl{min-height:0;text-align:right;margin-top:-6px}
+.dlt{font-style:normal;font-family:var(--mono);font-size:.62rem;margin-left:4px;padding:0 4px;border-radius:2px}
+.dlt.up{color:var(--good);background:rgba(134,201,148,.12)}
+.dlt.down{color:var(--bad);background:rgba(239,93,82,.12)}
+.mounts{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+@media (max-width:980px){.bay{grid-template-columns:1fr}.baysee{position:static}}
+/* minimap and map info */
+.rvmini{position:absolute;right:10px;top:10px;width:190px;height:auto;border:1px solid rgba(239,230,217,.35);border-radius:2px;background:#0b0908;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+.rvmini:hover{border-color:var(--amber)}
+.rvmap{grid-template-rows:minmax(0,1fr) auto auto}
+.rvminfo{font-size:.84rem;display:grid;gap:6px;min-height:28px}
+.rvminfo .readouts{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:640px){.rvmini{width:120px}}
+/* restart, bottom left */
+.restart{position:fixed;left:18px;bottom:18px;z-index:30;background:var(--panel2);border:1px solid var(--line);color:var(--dim);border-radius:2px;padding:8px 12px;font:600 .62rem var(--mono);letter-spacing:.08em;text-transform:uppercase;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+.restart:hover{color:var(--text);border-color:var(--rust)}
+.restart[hidden]{display:none}
+button.mini{display:inline-flex;align-items:center;gap:4px;grid-template-columns:none}
+.issues li.row,.issues .row{flex-wrap:wrap}
+.issues .row .ghost.mini{white-space:normal}
+@media (max-width:1520px) and (min-width:641px){footer{padding-left:170px}}
+@media (max-width:640px){.restart{left:10px;bottom:10px;padding:6px 8px;font-size:.54rem;opacity:.85}footer{padding-left:0;padding-bottom:44px}}
+
+/* ================= race mode ================= */
+.modal.race{width:min(640px,100%)}
+.modal.race .two{gap:10px}
+.modal.race .panel{gap:8px;padding:12px}
+.racelist{display:grid;gap:4px;margin:6px 0;padding:0}
+.racelist li{list-style:none;border:1px solid var(--line);padding:6px 10px;border-radius:2px;background:rgba(13,10,9,.6)}
+.racecount{position:fixed;inset:0;z-index:96;display:grid;place-items:center;background:rgba(6,4,3,.72);font:800 clamp(5rem,22vw,14rem)/1 var(--display);color:var(--rust);pointer-events:none;animation:ovIn .2s}
+.raceboard{position:fixed;right:18px;bottom:72px;z-index:31;width:min(320px,calc(100vw - 36px));background:rgba(18,13,11,.95);border:1px solid var(--rust);border-radius:3px;padding:10px 12px;display:grid;gap:6px;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.raceboard.lost{border-color:var(--bad)}
+.raceboard .rb{margin:0;padding:0;display:grid;gap:3px;max-height:40vh;overflow:auto}
+.raceboard .rb li{list-style:none;display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:0 8px;align-items:center;font-size:.82rem;padding:4px 6px;border-radius:2px;background:rgba(13,10,9,.6)}
+.raceboard .rb li .st{grid-column:2;font:.58rem var(--mono);color:var(--dim);letter-spacing:.04em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.raceboard .rb li .sc{grid-row:1/3;grid-column:3;font-size:1.05rem;color:var(--amber)}
+.raceboard .rb li>b:first-child{grid-row:1/3;color:var(--dim)}
+.raceboard .rb li .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.raceboard .rb li.me{background:rgba(234,111,60,.16);box-shadow:inset 3px 0 0 var(--rust)}
+.raceboard .rb li.gone{opacity:.5}
+.raceboard.min .rb,.raceboard.min>.row:last-child,.raceboard.min>p.dim{display:none}
+tr.me td{color:var(--amber)}
+.racebtn{border-color:var(--rust)!important}
+@media (max-width:640px){.raceboard{right:10px;bottom:56px;width:calc(100vw - 20px)}}
+body.racing main{padding-bottom:70px}
+.raceboard.min{padding:6px 10px;gap:0}
