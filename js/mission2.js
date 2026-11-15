@@ -10,9 +10,9 @@ function installM2(){
   const TASK='Find rock that formed in water. Bring two samples home.';
 
   VIEW.m2brief=()=>{const M=m2(),surveyed=M.fromM1;
-    main.innerHTML=head(1,'Mission briefing','ASEA Mission Control')+say('reyes',surveyed?`You chose ${LSITE[M.site][1]}. The crew is down and the rover is fuelled. Go and see if you were right.`:'No orbital survey on file, so the crew landed blind. Pick a site and make it work.')+`
+    main.innerHTML=head(1,'Mission briefing','ASEA Mission Control')+say('reyes',surveyed?`You chose ${LSITE[M.site][1]}. The crew is down and the rover is fueled. Go and see if you were right.`:'No orbital survey on file, so the crew landed blind. Pick a site and make it work.')+`
     <section class="panel task"><p class="kicker">Your task</p><h3>${TASK} ${Help.q('geology')}</h3>
-      <div class="steps">${['Outfit the rover','Explore Jezero','Analyse and sample','Run the outpost'].map((t,i)=>`<div><b>${i+1}</b><span>${t}</span></div>`).join('')}</div></section>
+      <div class="steps">${['Outfit the rover','Explore Jezero','Analyze and sample','Run the outpost'].map((t,i)=>`<div><b>${i+1}</b><span>${t}</span></div>`).join('')}</div></section>
     <section class="grid g3"><div class="panel stat"><p class="kicker">Landing site ${Help.q('landing')}</p><b class="num">${LSITE[M.site][1]}</b>${surveyed?'':`<div class="choices three">${Object.keys(LSITE).map(s=>`<button class="opt" data-ls="${s}" aria-pressed="${M.site===s}"><b>${LSITE[s][0]}</b></button>`).join('')}</div>`}</div>
       <div class="panel stat"><p class="kicker">Sample tubes ${Help.q('sample')}</p><b class="num">6</b></div><div class="panel stat"><p class="kicker">Surface crew ${Help.q('lifesupport')}</p><b class="num">3</b></div></section>
     ${navRow(false,'m2prep','Accept mission')}`;
@@ -21,18 +21,22 @@ function installM2(){
 
   VIEW.m2prep=()=>{const M=m2();M.battery=M.battery||'std';M.wheels=M.wheels||'std';const mass=roverMass(),over=mass>ROVER_LIMIT,sv=M.survey||[];
     main.innerHTML=head(2,'Rover preparation','Surface Systems Bay','One upgrade fits. Choose it.')+`
-    <section class="split"><div class="panel"><div class="cvwrap"><canvas id="rvsch"></canvas></div>
+    <section class="split"><div class="panel"><div class="cvwrap"><canvas id="rvsch"></canvas></div><p class="mono dim" style="font-size:.6rem">3D rover · drag to turn</p>
       ${meter('Rover mass',mass,ROVER_LIMIT,'kg')}</div>
     <div class="grid">${Object.keys(PARTS).map(k=>`<div class="panel"><p class="kicker">${k==='battery'?'Battery '+Help.q('rbattery'):'Wheels'}</p><div class="choices two">${Object.keys(PARTS[k]).map(v=>`<button class="opt" data-part="${k}" data-v="${v}" aria-pressed="${M[k]===v}"><b>${PARTS[k][v][0]}</b><span class="s">${PARTS[k][v][1]?'+'+PARTS[k][v][1]+' kg · ':''}${PARTS[k][v][2]}</span></button>`).join('')}</div></div>`).join('')}
       <div class="panel"><p class="kicker">Site report · ${LSITE[M.site][1]}</p><div class="tw"><table>${IK.map(k=>`<tr><th>${LAYER[k][0]}</th><td>${sv.includes(k)?SURV[M.site][k]:'<span class="dim">no data</span>'}</td></tr>`).join('')}<tr><th>Drive to the scarp</th><td>${SURV[M.site].drive}</td></tr></table></div></div></div></section>
     ${navRow(true,'rover','Deploy the rover',over,over?'Over the lander limit':'')}`;
-    const c=cv('rvsch',420,250),x=c.ctx,wide=M.wheels==='wide',big=M.battery==='large';x.fillStyle='#120d0b';x.fillRect(0,0,420,250);x.strokeStyle='rgba(143,200,218,.12)';for(let i=0;i<420;i+=20){x.beginPath();x.moveTo(i,0);x.lineTo(i,250);x.stroke();}for(let j=0;j<250;j+=20){x.beginPath();x.moveTo(0,j);x.lineTo(420,j);x.stroke();}
-    x.save();x.translate(200,125);x.fillStyle='#1c1a19';for(const wx of[-90,0,90])for(const wy of[-78,78]){x.fillRect(wx-26,wy-(wide?17:11),52,wide?34:22);}
-    x.strokeStyle='#8d8a84';x.lineWidth=5;x.beginPath();x.moveTo(-90,-64);x.lineTo(90,-64);x.moveTo(-90,64);x.lineTo(90,64);x.stroke();
-    x.fillStyle='#e9e5dc';x.fillRect(-78,-52,156,104);x.strokeStyle='#6b6964';x.lineWidth=2;x.strokeRect(-78,-52,156,104);x.fillStyle='#22345f';x.fillRect(-58,-38,74,76);
-    x.fillStyle='#4a4744';x.fillRect(-126,-28,48,56);x.fillStyle='#d9a441';x.fillRect(-120,-22,10,44);if(big){x.fillStyle='#3a3836';x.fillRect(-126,-56,48,24);x.fillRect(-126,32,48,24);x.fillStyle='#86c994';x.fillRect(-120,-50,8,12);x.fillRect(-120,38,8,12);}
-    x.strokeStyle='#cfcbc3';x.lineWidth=6;x.beginPath();x.moveTo(40,0);x.lineTo(108,0);x.stroke();x.fillStyle='#f4f1ea';x.fillRect(98,-26,34,52);x.fillStyle='#10141c';x.fillRect(124,-18,10,12);x.fillRect(124,6,10,12);x.restore();
-    x.fillStyle='#a39686';x.font='10px "Martian Mono",monospace';x.fillText('FRONT · camera mast',300,30);x.fillText('REAR · power unit',16,30);
+    /* the 3D rover, built from the chosen parts; the 2D schematic is the fallback when WebGL is missing */
+    const wide=M.wheels==='wide',big=M.battery==='large';
+    if(!view3('rvsch','rover',{wheels:M.wheels,battery:M.battery},{w:4,h:3,spin:.3,yaw:.7,pitch:.35})){
+      const c=cv('rvsch',420,250),x=c.ctx;
+      x.save();x.translate(200,125);x.fillStyle='#1c1a19';for(const wx of[-90,0,90])for(const wy of[-78,78]){x.fillRect(wx-26,wy-(wide?17:11),52,wide?34:22);}
+      x.strokeStyle='#8d8a84';x.lineWidth=5;x.beginPath();x.moveTo(-90,-64);x.lineTo(90,-64);x.moveTo(-90,64);x.lineTo(90,64);x.stroke();
+      x.fillStyle='#e9e5dc';x.fillRect(-78,-52,156,104);x.strokeStyle='#6b6964';x.lineWidth=2;x.strokeRect(-78,-52,156,104);x.fillStyle='#22345f';x.fillRect(-58,-38,74,76);
+      x.fillStyle='#4a4744';x.fillRect(-126,-28,48,56);x.fillStyle='#d9a441';x.fillRect(-120,-22,10,44);if(big){x.fillStyle='#3a3836';x.fillRect(-126,-56,48,24);x.fillRect(-126,32,48,24);x.fillStyle='#86c994';x.fillRect(-120,-50,8,12);x.fillRect(-120,38,8,12);}
+      x.strokeStyle='#cfcbc3';x.lineWidth=6;x.beginPath();x.moveTo(40,0);x.lineTo(108,0);x.stroke();x.fillStyle='#f4f1ea';x.fillRect(98,-26,34,52);x.fillStyle='#10141c';x.fillRect(124,-18,10,12);x.fillRect(124,6,10,12);x.restore();
+      x.fillStyle='#a39686';x.font='10px "Martian Mono",monospace';x.fillText('FRONT · camera mast',300,30);x.fillText('REAR · power unit',16,30);
+    }
     main.querySelectorAll('[data-part]').forEach(b=>b.onclick=()=>{M[b.dataset.part]=b.dataset.v;VIEW.m2prep();});
     bindNav('m2brief','rover');};
 
@@ -74,7 +78,7 @@ function installM2(){
     main.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{o.sw[b.dataset.m]=!o.sw[b.dataset.m];VIEW.outpost();});
     $('runSol').onclick=async()=>{const notes=[];o.bat=clamp(o.bat-short,0,60);
       let w=-10,ox=-9;if(o.sw.water)w+=14*o.feed;if(o.sw.o2)ox+=12;o.water=clamp(o.water+w,0,100);o.o2=clamp(o.o2+ox,0,100);
-      if(o.sw.lab&&todo>0){const n=Math.min(2,todo);o.lab+=n;notes.push(`lab analysed ${n} sample${n>1?'s':''}`);}
+      if(o.sw.lab&&todo>0){const n=Math.min(2,todo);o.lab+=n;notes.push(`lab analyzed ${n} sample${n>1?'s':''}`);}
       if(!o.sw.heat){o.equip-=18;notes.push('equipment cold-soaked');}
       if(o.water<=0||o.o2<=0){o.crew-=40;notes.push('crew on emergency reserves');}
       if(eff<1)notes.push(`dust: solar at ${Math.round(eff*100)}%`);

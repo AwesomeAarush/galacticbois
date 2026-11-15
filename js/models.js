@@ -4,7 +4,7 @@
    Planets, instruments and the rocket are generated in code. The spacecraft is assets/spacecraft_3d.glb
    (with a generated stand-in while it loads).
    Optional: drop real NASA maps at assets/mars.jpg and assets/earth.jpg (equirectangular, 2:1,
-   longitude 0 in the centre) and they replace the generated planet surfaces automatically. */
+   longitude 0 in the center) and they replace the generated planet surfaces automatically. */
 const Models=(()=>{
   let T3,ok=null,R,env,cache={},views=[],looping=false,rw=0,rh=0;
   const TAU=Math.PI*2,INSTCOL={cam:0xea6f3c,spec:0xf2b84f,mcs:0x86c994,radar:0x8fc8da};
@@ -24,7 +24,7 @@ const Models=(()=>{
   const cvs=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
   const ang=(lon,lat)=>{const a=lon*Math.PI/180,b=lat*Math.PI/180;return [Math.cos(b)*Math.cos(a),Math.sin(b),Math.cos(b)*Math.sin(a)];};
 
-  /* ---------- Mars: colour map and height map ---------- */
+  /* ---------- Mars: color map and height map ---------- */
   function marsMaps(){
     if(cache.mars)return cache.mars;
     const W=1024,H=512,col=cvs(W,H),hgt=cvs(W,H),cx=col.getContext('2d'),hx=hgt.getContext('2d'),ci=cx.createImageData(W,H),hi=hx.createImageData(W,H);
@@ -46,7 +46,7 @@ const Models=(()=>{
     const C=cvs(2048,1024),B=cvs(1024,512),c=C.getContext('2d'),b=B.getContext('2d');c.imageSmoothingQuality='high';c.drawImage(col,0,0,2048,1024);b.drawImage(hgt,0,0);
     const both=(fn)=>{fn(c,2048/360,1);fn(b,1024/360,0);};
     const r=prng(41);
-    /* craters: dark floor, bright rim, stretched towards the poles like any cylindrical map */
+    /* craters: dark floor, bright rim, stretched toward the poles like any cylindrical map */
     for(let i=0;i<900;i++){const lon=r()*360-180,lat=Math.asin(r()*1.7-.85)*180/Math.PI,rad=.18+Math.pow(r(),5)*2.6,st=1/Math.max(.3,Math.cos(lat*Math.PI/180)),al=.07+r()*.13;
       both((x,s,isC)=>{const px=(lon+180)*s,py=(90-lat)*s,rr=rad*s;
         x.fillStyle=isC?`rgba(48,24,16,${al})`:'rgba(70,70,70,.35)';x.beginPath();x.ellipse(px,py,rr*st,rr,0,0,7);x.fill();
@@ -63,7 +63,7 @@ const Models=(()=>{
     both((x,s,isC)=>{const px=(77.5+180)*s,py=(90-18.4)*s;x.fillStyle=isC?'rgba(60,30,20,.55)':'rgba(30,30,30,.7)';x.beginPath();x.arc(px,py,.55*s,0,7);x.fill();x.strokeStyle=isC?'rgba(240,190,140,.6)':'rgba(240,240,240,.7)';x.lineWidth=.14*s;x.stroke();});
     cache.mars={col:C,hgt:B};tryReal('mars');return cache.mars;}
 
-  /* ---------- Earth: colour, roughness (shiny oceans) and a separate cloud layer ---------- */
+  /* ---------- Earth: color, roughness (shiny oceans) and a separate cloud layer ---------- */
   function earthMaps(){
     if(cache.earth)return cache.earth;
     const W=1024,H=512,col=cvs(W,H),rgh=cvs(W,H),cld=cvs(W,H),cx=col.getContext('2d'),rx=rgh.getContext('2d'),dx=cld.getContext('2d'),ci=cx.createImageData(W,H),ri=rx.createImageData(W,H),di=dx.createImageData(W,H);
@@ -357,7 +357,73 @@ const Models=(()=>{
     return ok;}
   function grade(r){r.outputEncoding=T3.sRGBEncoding;r.toneMapping=T3.ACESFilmicToneMapping;r.toneMappingExposure=1.15;}
   function lights(scene,sunPos=[-6,4,5]){const sun=new T3.DirectionalLight(0xfff3e2,2.6);sun.position.set(...sunPos);scene.add(sun);scene.add(new T3.HemisphereLight(0x8fa6c8,0x6a3a24,.35));scene.environment=envMap();return sun;}
-  function build(kind,o){return kind==='craft'?craft(o):kind==='inst'?instrument(o.k):kind==='rocket'?rocket(o):planet(kind);}
+  /* ---------- the rover: six wheels, rocker-bogie arms, solar deck, mast, antenna and a robot arm ----------
+     Built from the same design language as the spacecraft: white panels, gold foil, dark instruments.
+     options: wheels 'std'|'wide', battery 'std'|'large'. */
+  /* ---------- the authored rover model (assets/rover.glb) ----------
+     Convert the source OBJ once with:  python3 tools/obj2glb.py assets/rover.obj assets/rover.glb
+     It is normalized here (longest side 2.9 m, resting on y=0) so the camera poses that frame the
+     built-in rover frame this one the same way. */
+  const RV={state:0,proto:null,wait:[]};
+  function loadRover(cb){
+    T3=T3||window.THREE;
+    if(RV.state===2)return cb&&cb(true);if(RV.state===3)return cb&&cb(false);
+    if(cb)RV.wait.push(cb);if(RV.state===1)return;RV.state=1;
+    const done=okk=>{RV.state=okk?2:3;RV.wait.splice(0).forEach(f=>{try{f(okk);}catch(e){console.warn(e);}});};
+    try{if(!T3||!T3.GLTFLoader)throw new Error('GLTFLoader missing');
+      new T3.GLTFLoader().load('assets/rover.glb',gl=>{try{
+        const m=gl.scene,b=new T3.Box3().setFromObject(m),sz=b.getSize(new T3.Vector3()),c=b.getCenter(new T3.Vector3());
+        const k=2.9/(sz.x||sz.z||1),h=new T3.Group();
+        m.position.set(-c.x,-b.min.y,-c.z);h.add(m);h.scale.setScalar(k);RV.proto=h;done(true);
+      }catch(e){console.warn('Rover model could not be prepared:',e&&e.message);done(false);}},undefined,
+        ()=>{console.warn('assets/rover.glb missing; using the built-in rover.');done(false);});
+    }catch(e){console.warn('Rover model unavailable:',e&&e.message);done(false);}
+  }
+  function rover(o={}){
+    const g=new T3.Group(),fb=new T3.Group();g.add(fb);const wide=o.wheels==='wide',big=o.battery==='large';
+    const M=(c,r=.6,m=.2,extra)=>new T3.MeshStandardMaterial(Object.assign({color:c,roughness:r,metalness:m,envMapIntensity:.8},extra||{}));
+    const white=M(0xe9e5dc,.55,.15),gold=M(0xd6a94a,.45,.75),dark=M(0x23262b,.7,.2),steel=M(0x8d9299,.35,.85),
+      panel=M(0x1b2a72,.35,.55),rubber=M(0x1a1a1c,.95,0);
+    const B=(w,h,d,mt,x,y,z,par)=>{const m=new T3.Mesh(new T3.BoxGeometry(w,h,d),mt);m.position.set(x,y,z);(par||fb).add(m);return m;};
+    const C=(r1,r2,h,mt,x,y,z,rot,par)=>{const m=new T3.Mesh(new T3.CylinderGeometry(r1,r2,h,20),mt);m.position.set(x,y,z);if(rot)m.rotation.set(rot[0],rot[1],rot[2]);(par||fb).add(m);return m;};
+    /* body, belly pan and solar deck */
+    B(2.5,.5,1.4,white,0,.62,0);B(2.7,.1,1.5,gold,0,.9,0);B(2.5,.08,1.4,steel,0,.36,0);
+    B(1.9,.06,1.1,panel,-.15,1.02,0);for(let i=-3;i<=3;i++)B(.03,.02,1.06,steel,-.15+i*.28,1.06,0);
+    B(.5,.34,.4,dark,.85,.62,.62);B(.4,.05,.3,steel,.85,.8,.62);
+    if(big)B(.5,.32,.9,gold,1.05,.62,0);
+    /* mast with a stereo camera pair, plus a low-gain whip */
+    C(.05,.05,.95,steel,-.75,1.3,.35);B(.32,.22,.22,white,-.75,1.82,.35);
+    for(const dx of[-.07,.07])C(.05,.05,.06,dark,-.75+dx,1.82,.47,[Math.PI/2,0,0]);
+    C(.015,.015,.5,steel,-.75,1.55,-.2,[0,0,.5]);
+    /* high-gain antenna */
+    const dish=new T3.Mesh(new T3.SphereGeometry(.32,22,12,0,Math.PI*2,0,.9),M(0xf2efe8,.4,.3,{side:T3.DoubleSide}));
+    dish.position.set(.95,1.25,-.35);dish.rotation.set(1.2,0,.3);fb.add(dish);
+    /* robot arm at the front: two booms and a turret */
+    const arm=new T3.Group();arm.position.set(-1.25,.72,.2);fb.add(arm);
+    B(.7,.09,.09,steel,-.35,0,0,arm);const b2=B(.55,.08,.08,steel,-.35,-.22,.1,arm);b2.rotation.z=.9;
+    B(.16,.12,.12,dark,-.62,-.34,.2,arm);
+    /* rocker-bogie suspension, three wheels a side */
+    const wz=wide?.44:.3,wr=.38;
+    for(const z of[.78,-.78]){
+      B(1.7,.07,.07,steel,.15,.55,z);const a1=B(.6,.06,.06,steel,-.62,.42,z);a1.rotation.z=-.35;
+      const a2=B(.7,.06,.06,steel,.7,.45,z);a2.rotation.z=.3;
+      for(const [wx,wy] of[[-.95,.38],[.05,.34],[1.02,.38]]){
+        const w=new T3.Mesh(new T3.CylinderGeometry(wr,wr,wz,18),rubber);w.position.set(wx,wy,z);w.rotation.x=Math.PI/2;fb.add(w);
+        const hub=new T3.Mesh(new T3.CylinderGeometry(.12,.12,wz+.02,12),steel);hub.position.set(wx,wy,z);hub.rotation.x=Math.PI/2;fb.add(hub);
+      }
+    }
+    /* sample rack and two headlamps */
+    for(let i=0;i<4;i++)B(.1,.22,.1,steel,1.35,.5,-.5+i*.32);
+    for(const dz of[-.45,.45])B(.12,.1,.12,gold,-1.3,.85,dz);
+    g.userData.rad=2.05;
+    /* The authored model (assets/rover.glb, converted from the source OBJ) replaces the built-in rover
+       as soon as it has loaded. The built-in one stays as a hidden fallback, so a missing or broken
+       file can never leave the prep screen empty. */
+    const swap=()=>{if(!RV.proto)return;fb.visible=false;if(!g.userData.glb){const m=RV.proto.clone(true);if(m.traverse)m.traverse(n=>{if(n.isMesh&&n.material)n.material.envMapIntensity=1.1;});g.add(m);g.userData.glb=m;}};
+    if(RV.state===2)swap(); else if(RV.state===0)loadRover(ok=>{if(ok&&g.parent)swap();});
+    return g;
+  }
+  function build(kind,o){return kind==='craft'?craft(o):kind==='inst'?instrument(o.k):kind==='rocket'?rocket(o):kind==='rover'?rover(o):planet(kind);}
   /* view(canvas, kind, options, {w,h,spin,drag,pitch}) -> {set(options)} or null when 3D is unavailable */
   function view(canvas,kind,o={},cfg={}){
     if(!init())return null;
@@ -398,7 +464,7 @@ const Models=(()=>{
 
   /* ---------- the view out of the window: a full-page scene behind the console ----------
      Each game stage has a "pose" (where Mars and Earth sit); changing stage glides from one to the next,
-     so moving through the mission feels like travelling rather than loading a new page. */
+     so moving through the mission feels like traveling rather than loading a new page. */
   const POSE={title:{m:[3.3,-.2,-9,3],e:[-70,6,-90,1.5]},briefing:{m:[5.4,1.6,-15,2.4],e:[-70,6,-90,1.5]},science:{m:[-6.2,-3.2,-12,3.2],e:[-70,6,-90,1.5]},
     planning:{m:[9,4,-70,1.1],e:[-6.5,-4.6,-12,4]},design:{m:[30,14,-160,1],e:[0,-13.5,-14,12]},review:{m:[30,14,-160,1],e:[1.5,-13.2,-14,12]},
     cruise:{m:[8,3.2,-90,1.1],e:[-10,-4.5,-80,1.2]},moi:{m:[5.2,-2,-10,4.2],e:[-60,20,-200,1]},ops:{m:[0,-14.3,-14,12.6],e:[-60,20,-200,1]},debrief:{m:[4.6,-1,-17,3],e:[-14,7,-120,1]}};
@@ -457,5 +523,5 @@ const Models=(()=>{
     }catch(e){console.warn('Backdrop unavailable:',e&&e.message);return null;}}
 
   const use=fn=>(...a)=>{T3=T3||window.THREE;return fn(...a);};
-  return {view,backdrop,craft:use(craft),rocket:use(rocket),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},preload:()=>loadGLB(),get craftSource(){return ['none','loading','model file','built-in'][GLB.state]},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
+  return {view,backdrop,craft:use(craft),rocket:use(rocket),rover:use(rover),planet:use(planet),instrument:use(instrument),sprite:use(sprite),envMap:use(envMap),grade:use(grade),lights:use(lights),marsCanvas:()=>marsMaps().col,ready:()=>!!window.THREE,get three(){return T3||(T3=window.THREE);},preload:()=>loadGLB(),get craftSource(){return ['none','loading','model file','built-in'][GLB.state]},get mode(){return ok===null?'not started':ok?'3d':'2d'}};
 })();

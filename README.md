@@ -28,12 +28,17 @@ leave the build command empty, and deploy.
 | `index.html` | Page shell. Loads fonts, three.js (from cdnjs) and the two scripts. |
 | `style.css` | All styling. Colours and fonts are variables at the top. |
 | `js/game.js` | Game data, physics, the eight stages, events, scoring. |
+| `js/equations.js` | The "See the math" panels on the science-and-build screen. |
+| `assets/favicon.svg` | The browser tab icon. |
 | `js/cutscenes.js` | 3D cutscene engine. `Cine.play(sceneId, options)`. |
 | `vercel.json` | Vercel settings (clean URLs only). |
 
 ## Where to change things
 
-- Balance numbers: `INST`, `SYS`, `TR`, `ORB`, `REG` and `PRE` near the top of `js/game.js`.
+- Rover model: the surface rover in `js/models.js` is built in code. If `assets/rover.glb` is present it is used
+  instead; make one from an OBJ with `python3 tools/obj2glb.py assets/rover.obj assets/rover.glb`.
+- Balance numbers: `INST`, `SYS`, `OXY`, `TR`, `ORB`, `REG` and `PRE` near the top of `js/game.js`.
+- Launch date: `pickWindow()` and `windowOf()` in `js/game.js`. A window is any day inside ten degrees of arrival error, picked once per mission and saved with the state.
 - Random event odds: `rollRandom` and `boltP` in `js/game.js`.
 - Story lines and characters: `WHO`, `say(...)` calls and the `lines` arrays passed to `Cine.play`.
 - Glossary: `TERMS` in `js/game.js`.

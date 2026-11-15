@@ -9,14 +9,14 @@ const Cine=(()=>{
      Every scene is built at real size and real distance (the renderer uses a logarithmic depth buffer so that a
      24 m spacecraft and a 6,779 km planet can share one scene). The spacecraft is 24 m long (5.4 scene units),
      Mars has a radius of 3,389.5 km and Earth 6,371 km, and planetAt() places them the stated number of
-     kilometres away. So from a 300 km orbit the horizon sits 23 degrees below level, exactly as it does for a
+     kilometers away. So from a 300 km orbit the horizon sits 23 degrees below level, exactly as it does for a
      real orbiter, and the spacecraft can no longer sink into the surface: it is 300 km above it.
      The launch vehicle is 62 m tall and is drawn to the spacecraft's scale whenever both are in shot. */
   const MARS=3389.5,EARTH=6371,M_PER_UNIT=24/5.4,ROCKET_SCALE=62/5.1/M_PER_UNIT,FY=2.72;
   const sprite=(c,b)=>Models.sprite(c,b);
   const cl=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)),sm=(a,b,x)=>{const t=cl((x-a)/(b-a));return t*t*(3-2*t);},mix=(a,b,t)=>a+(b-a)*t;
   const nrm=(x,y,z)=>{const l=Math.hypot(x,y,z);return [x/l,y/l,z/l];};
-  /* true size and true distance: one scene unit is mpu metres (4.4 m in spacecraft shots, 12.2 m in rocket shots) */
+  /* true size and true distance: one scene unit is mpu meters (4.4 m in spacecraft shots, 12.2 m in rocket shots) */
   function planetAt(p,Rkm,distKm,dir,mpu=M_PER_UNIT){const rad=Rkm*1000/mpu,Dr=distKm*1000/mpu;p.scale.setScalar(rad);p.position.set(dir[0]*Dr,dir[1]*Dr,dir[2]*Dr);}
   const setSun=(x,y,z)=>sun.position.set(x,y,z);
   let bay=null,tmpV=null,qA=null,qB=null;
@@ -143,7 +143,7 @@ const Cine=(()=>{
       const dead=u>.62,t=dead?u-.62:0;kestrel.position.set(-1.5+u*3,0,0);kestrel.rotation.set(.2+t*1.5,.9+s*.02,t*1.1);
       kestrel.userData.lamp.visible=u<.5?true:u<.62?Math.sin(s*38)>0:false;
       cam.position.set(6-u*2,2.6,12.5-u*2);cam.lookAt(kestrel.position.x*.5,-1.6,0);},
-    /* Launch in two shots. On the pad: a 62 m rocket, a tower and a horizon five kilometres away.
+    /* Launch in two shots. On the pad: a 62 m rocket, a tower and a horizon five kilometers away.
        Then from 90 to 240 km up: booster separation, stage separation, fairing jettison. */
     launch(u,s,o,dt){const T0=.27,CUT=.56,D=rocket.userData,f=D.flame;
       if(u<CUT){show(pad,rk,sky,smoke,flash);resetRocket();const l=cl((u-T0)/(CUT-T0)),h=l*l*85,dark=1-l*l*.8;
@@ -190,6 +190,14 @@ const Cine=(()=>{
     flyby(u,s){show(mars,craft);setSun(-5,3.2,4);const e=u*u,v=sm(0,.45,u);planetAt(mars,MARS,MARS+300+e*52000,nrm(.1-v*.25,-1+v*.86,-.25-v*1.5));mars.rotation.set(.4,1.2,s*.012);
       craft.position.set(0,0,0);craft.rotation.set(.06,-Math.PI/2+u*.5,u*.3);flame(craft,u<.1||(u<.2&&Math.sin(s*31)>.2),.8);
       cam.position.set(5-u*3,2.4+u*1.5,13.5+u*2);cam.lookAt(-.5,-1.2+u,0);},
+    /* Proton storm failure. Nothing explodes: the computer is gone, so there is no braking burn. Mars swells,
+       slides past the window and shrinks again while the spacecraft sails on into the dark. */
+    missmars(u,s,o,dt){show(mars,craft);setSun(-5,3.2,4);
+      const after=sm(.5,1,u),pass=sm(0,.62,u);
+      planetAt(mars,MARS,MARS+420+after*190000,nrm(.16-pass*.55,-1+after*.95,-.3-pass*1.7));mars.rotation.set(.4,1.2+s*.012,0);
+      craft.position.set(0,0,0);craft.rotation.set(.12+after*.5,-Math.PI/2+after*.85,after*1.1);
+      if(craft.userData.deploy)craft.userData.deploy(1);flame(craft,false);
+      cam.position.set(5-u*2.5,2.2+u*1.5,13.5+u*4.5);cam.lookAt(-.6,-1.4+u*1.3,0);},
     /* The burn ran long: the low point of the orbit falls to 70 km and the air does the rest */
     toodeep(u,s,o,dt){const hit=u>.7,b=cl((u-.7)/.3);show(mars,...(hit?[flash]:[craft,glow]),parts);setSun(-5,3,4);
       planetAt(mars,MARS,MARS+115-cl(u/.7)*50,nrm(.05,-1,-.18));mars.rotation.set(.4,1.2,s*.02);

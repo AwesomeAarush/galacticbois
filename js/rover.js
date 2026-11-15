@@ -7,8 +7,8 @@
 
    Structure: world (terrain, rocks, formations) -> simulation step (physics, energy) -> drawing -> panels. */
 const Rover=(()=>{
-  const W=2600,H=1900,TS=.5;                         /* world size in metres, terrain texture scale */
-  const VIEW_W=880;                                   /* metres of ground across the view */
+  const W=2600,H=1900,TS=.5;                         /* world size in meters, terrain texture scale */
+  const VIEW_W=880;                                   /* meters of ground across the view */
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),sm=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);},mix=(a,b,t)=>a+(b-a)*t;
   const rng=s=>()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
   /* 2D value noise */
@@ -37,7 +37,7 @@ const Rover=(()=>{
       obs:['Pale tan bands along the slope.','Rough, etched surface.','Sits high, near the old shoreline level.']},
     sulf:{n:'White vein in fractured rock',sed:false,label:'Sulfate vein',col:'#e8e2d6',comp:{Si:18,Fe:6,Mg:5,Al:3,Ca:26,S:30},
       obs:['Bright white material filling cracks.','Softer than the rock around it.','Cuts across the host rock.']}};
-  const ELS=['Si','Fe','Mg','Al','Ca','S'],ELN={Si:'Silicon',Fe:'Iron',Mg:'Magnesium',Al:'Aluminium',Ca:'Calcium',S:'Sulfur'};
+  const ELS=['Si','Fe','Mg','Al','Ca','S'],ELN={Si:'Silicon',Fe:'Iron',Mg:'Magnesium',Al:'Aluminum',Ca:'Calcium',S:'Sulfur'};
   const FORM=[['mud',690,900,'Scarp ledge'],['mud',725,430,'North terrace'],['sand',815,1250,'Fan toe slab'],['sand',650,1570,'South bench'],
     ['bas',1300,1010,'Floor block'],['bas',1720,830,'Dark ridge'],['bas',2010,1240,'East knob'],['carb',2385,610,'Upper pale band'],['carb',2455,1160,'Rim shelf'],
     ['sulf',1585,705,'Crater wall crack'],['sulf',1228,1548,'Pit fracture']];
@@ -112,7 +112,7 @@ const Rover=(()=>{
     const near=(range=75)=>{let best=null,bd=1e9;for(const f of w.forms){const d=Math.hypot(S.x-f.x,S.y-f.y)-f.r;if(d<range&&d<bd){bd=d;best=f;}}return best;};
     const explored=()=>w.seenCells/w.cells.length;
     const O=()=>{const scans=w.forms.filter(f=>f.scan).length,right=w.forms.filter(f=>f.scan&&f.guess===f.cls),kinds=new Set(right.map(f=>f.cls));
-      return {main:[['Deploy the rover',S.left],['Explore the region',explored()>=.22,`${Math.round(explored()*100)}% mapped`],['Analyse 3 formations',scans>=3,`${scans} / 3`],['Collect 2 samples',S.samples.length>=2,`${S.samples.length} / 2`],['Return to base',S.done&&!S.stranded]],
+      return {main:[['Deploy the rover',S.left],['Explore the region',explored()>=.22,`${Math.round(explored()*100)}% mapped`],['Analyze 3 formations',scans>=3,`${scans} / 3`],['Collect 2 samples',S.samples.length>=2,`${S.samples.length} / 2`],['Return to base',S.done&&!S.stranded]],
         opt:[['Photograph a layered outcrop',w.forms.some(f=>f.photo&&CLS[f.cls].sed)],['Find 6 formations',w.forms.filter(f=>f.seen).length>=6,`${w.forms.filter(f=>f.seen).length} / 6`],['Tell two rock types apart',kinds.size>=2,`${kinds.size} / 2`],['Dock with 20% battery',S.done&&!S.stranded&&S.e>=20]]};};
 
     host.innerHTML=`<div class="rover"><div class="rvmain"><div class="rvwrap"><canvas id="rvc" tabindex="0" aria-label="Rover view. Drive with W A S D."></canvas>
@@ -148,7 +148,7 @@ const Rover=(()=>{
         <div class="row"><button class="ghost" id="rpC" ${can?'':'disabled'}>Camera · 0.6%</button><button class="ghost" id="rpS" ${can?'':'disabled'}>Laser scanner · 2.5% ${Help.q('libs')}</button></div>
         <p class="kicker" style="margin-top:8px">Sample tubes ${S.samples.length} / 6 ${Help.q('sample')}</p>
         <div class="tw"><table>${S.samples.map(s=>`<tr><td class="num">${s.id}</td><td>${s.site}<div class="dim" style="font-size:.76rem">${s.time} · ${s.grid} · ${s.cls}</div></td></tr>`).join('')||'<tr><td class="dim">Empty. Press E beside a formation to drill.</td></tr>'}</table></div>
-        <p class="kicker" style="margin-top:8px">Analyses</p><div class="tw"><table>${w.forms.filter(x=>x.scan).map(x=>`<tr><td>${x.name}</td><td class="num">${ELS.map(e=>`${e} ${x.scan.v[e].toFixed(0)}`).join(' · ')}</td><td>${x.guess?CLS[x.guess].label:'<span class="dim">unclassified</span>'}</td></tr>`).join('')||'<tr><td class="dim">None yet.</td></tr>'}</table></div>`;
+        <p class="kicker" style="margin-top:8px">Analyzes</p><div class="tw"><table>${w.forms.filter(x=>x.scan).map(x=>`<tr><td>${x.name}</td><td class="num">${ELS.map(e=>`${e} ${x.scan.v[e].toFixed(0)}`).join(' · ')}</td><td>${x.guess?CLS[x.guess].label:'<span class="dim">unclassified</span>'}</td></tr>`).join('')||'<tr><td class="dim">None yet.</td></tr>'}</table></div>`;
       panelEl.querySelector('#rpx').onclick=closePanel;if(can){panelEl.querySelector('#rpC').onclick=()=>photo(f);panelEl.querySelector('#rpS').onclick=()=>scanAim(f);}}
     function photo(f){S.e=Math.max(0,S.e-.6);const first=!f.photo;f.photo=true;f.seen=true;if(first){S.photos++;say(`Photographed ${f.name}.`);}
       panelEl.innerHTML=`<div class="row between"><p class="kicker">Camera · ${f.name}</p><button class="hx" id="rpx" aria-label="Close">×</button></div><canvas id="rpimg" width="420" height="250" class="rvimg"></canvas>
@@ -177,7 +177,7 @@ const Rover=(()=>{
       panelEl.innerHTML=`<div class="row between"><p class="kicker">Analysis · ${f.name}</p><button class="hx" id="rpx" aria-label="Close">×</button></div>
         <div class="row between"><span class="pill ${s.q>.66?'go':s.q>.33?'warn':'nogo'}">${s.q>.66?'Clean spectrum':s.q>.33?'Partly on dust':'Mostly dust: noisy'}</span><span class="mono dim" style="font-size:.6rem">SIMULATED MEASUREMENT · WEIGHT %</span></div>
         <div class="elbars">${ELS.map(e=>`<div><span>${ELN[e]}</span><i><b style="width:${s.v[e]/mx*100}%"></b></i><b class="num">${s.v[e].toFixed(1)}</b></div>`).join('')}</div>
-        ${first?'':'<p class="dim" style="font-size:.82rem">This rock was already analysed. A repeat can sharpen the reading but adds no new science.</p>'}
+        ${first?'':'<p class="dim" style="font-size:.82rem">This rock was already analyzed. A repeat can sharpen the reading but adds no new science.</p>'}
         <p class="kicker">Field classification ${Help.q('libs')}</p><div class="choices">${Object.keys(CLS).map(k=>`<button class="choice" data-g="${k}" aria-pressed="${f.guess===k}"><b>${CLS[k].label}</b></button>`).join('')}</div>
         <div class="row"><button class="ghost" id="rpB">Back</button><button class="ghost" id="rpA">Scan again · 2.5%</button></div>`;
       panelEl.querySelector('#rpx').onclick=closePanel;panelEl.querySelector('#rpB').onclick=drawPanel;panelEl.querySelector('#rpA').onclick=()=>scanAim(f);
@@ -206,7 +206,7 @@ const Rover=(()=>{
       x.fillStyle='#f2b84f';x.strokeStyle='#f2b84f';x.beginPath();x.arc(B.x*k,B.y*k,5,0,7);x.fill();x.font='10px "Martian Mono",monospace';x.fillText('BASE',B.x*k+8,B.y*k+4);
       for(const f of w.forms)if(f.seen){x.fillStyle=f.sampled?'#86c994':f.scan?'#8fc8da':'#efe6d9';x.beginPath();x.moveTo(f.x*k,f.y*k-5);x.lineTo(f.x*k+5,f.y*k+4);x.lineTo(f.x*k-5,f.y*k+4);x.fill();x.fillText(f.name,f.x*k+8,f.y*k+3);}
       x.save();x.translate(S.x*k,S.y*k);x.rotate(S.a);x.fillStyle='#ea6f3c';x.beginPath();x.moveTo(9,0);x.lineTo(-6,-5);x.lineTo(-6,5);x.fill();x.restore();
-      x.fillStyle='#a39686';x.fillText('white: seen   blue: analysed   green: sampled',8,c.height-8);}
+      x.fillStyle='#a39686';x.fillText('white: seen   blue: analyzed   green: sampled',8,c.height-8);}
 
     /* ----- simulation ----- */
     function step(dt){if(S.done||S.stranded)return;S.t+=dt;const K=S.keys,busy=!!S.panel||S.map;

@@ -11,6 +11,8 @@ Mission Control: Beyond is a static site. There is no build step and no server c
 | `js/game.js` | The game itself: physics, data, state, every screen, every event, scoring. |
 | `js/models.js` | All 3D assets, as a module called `Models`: planets, spacecraft, rocket, instruments, plus the small live 3D views and the backdrop. |
 | `js/cutscenes.js` | The cutscene engine, as a module called `Cine`. |
+| `tools/obj2glb.py` | Converts an OBJ with per-vertex colors into `assets/rover.glb`, which `rover()` in `js/models.js` loads when it exists. |
+| `js/equations.js` | Interactive equation panels (`Eq.attach`): rocket equation, oxygen endurance, solar power. |
 | `js/voice.js` | The narrator, as a module called `Voice`. |
 | `js/GLTFLoader.js` | The standard three.js loader for `.glb` files (unchanged library code). |
 | `assets/` | `spacecraft_3d.glb` (the spacecraft), `mars.jpg` and `earth.jpg` (planet maps from NASA's GMAT). |
@@ -29,7 +31,7 @@ three.js r128 comes from a CDN. If it fails to load, the game falls back to 2D d
    `propNeeded()` and `howTo()` build on these for the "load what the flight plan needs" button and the step-by-step fixes.
 5. **UI helpers.** `head()` (stage header), `say()` (a character line), `coach()` ("what to do here"), `meter()`, `ask()` and `tell()` (modal dialogs that return a Promise).
 6. **Navigation.** `go(stage)` is the only way to change screen. It cross-fades the old screen out, shows the location card, moves the backdrop, and calls `VIEW[stage]()`.
-7. **Screens.** `VIEW.title`, `.briefing`, `.science`, `.planning`, `.design`, `.review`, `.cruise`, `.moi`, `.ops`, `.debrief`. Each one writes HTML into `<main>` and then attaches click handlers.
+7. **Screens.** `VIEW.title`, `.briefing`, `.planning`, `.design`, `.review`, `.cruise`, `.moi`, `.ops`, `.debrief`. Each one writes HTML into `<main>` and then attaches click handlers. `VIEW.science` no longer exists: science objectives and spacecraft build are one `VIEW.design` screen, in that order.
 8. **Flight.** `launch()` freezes the design into `S.fl` and plays the launch cutscenes. `VIEW.cruise` runs a loop, one week per tick, firing events at set points. `VIEW.moi` is the engine-burn minigame. `VIEW.ops` is one orbit pass per click.
 9. **Crew.** `crewNew()` creates three astronauts and shared supplies. `crewTick(weeks)` uses food, water and oxygen automatically and updates health, energy, stress and radiation. `crewPanel()` draws the panel; the player only sets meals and work schedule. `evWater()` and `evMed()` are the crew events.
 10. **Events.** Ordinary events (`evComm`, `evPower`, ...) are choices. Major events (`evStorm`, `evRock`, `evToilet`, `evPanel`) are minigames that return true or false; `lethal()` wraps them and ends the mission on a failure (guided mode forgives one).
@@ -75,7 +77,7 @@ Picking a launch site sets `S.site`. From then on `cap()` returns that site's ma
 
 **Hardware controls.** `.tsw` (toggle switch) and `.brk` (main breaker) are plain buttons styled in `style.css`; the class `on` flips the lever.
 
-**Events.** `evStorm` no longer destroys the spacecraft: dose damages electronics (`S.radDeg`), interrupts a pass and raises crew radiation. `evRock` is rare (`S.cr.rock`, 8% of missions). `evToilet` plays the rendered `toilet` scene from `js/cutscenes.js` (`buildBay()` builds the hygiene bay), then the valve task. `evPanel` shows eight telemetry channels with their normal ranges and highlights nothing.
+**Events.** `evStorm` no longer destroys the spacecraft unless the dose passes the electronics limit: that failure plays the `missmars` scene (Mars goes past) and shows a "what went wrong" card. Lesser dose damages electronics (`S.radDeg`), interrupts a pass and raises crew radiation. `evRock` is rolled at launch (`S.cr.rock`, about 1 flight in 40) and `evToilet` at 13%, so the toilet is the more common of the two. `evToilet` plays the rendered `toilet` scene from `js/cutscenes.js`, then the valve task. `evPanel` shows eight telemetry channels with their normal ranges and highlights nothing. `makeSchedule()` deals the cruise events in a random order each flight.
 
 **Demo controls** are hidden. Add `?demo` to the address to show them.
 
