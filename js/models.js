@@ -170,11 +170,14 @@ const Models=(()=>{
   const GLB={state:0,proto:null,wait:[],aft:-3.1,rad:3.25};
   /* which build choice controls each named part of the model */
   const cnt={};
-  function partKey(name,cx){const side=cx<-1?'a':'f',n=c=>{cnt[c]=(cnt[c]||0)+1;return cnt[c]-1;};
-    if(/^Solar panel/.test(name))return 'sol_'+side;
-    if(/Cross array spine|Copper radiator tile|Cross arm guide/.test(name))return 'rad_'+side;
-    if(/gold cluster gold tank/.test(name))return 'tk_'+side+(n('t'+side)%6);
-    if(/gold cluster mount/.test(name))return 'tk_'+side+(n('m'+side)%6);
+  /* GLTFLoader turns the spaces in node names into underscores ("Solar_panel_1_upper_edge_01"), so names are
+     normalised before matching. Without this no part group is found and the model never reacts to the build. */
+  function partKey(raw,cx){const name=String(raw).replace(/_/g,' '),n=c=>{cnt[c]=(cnt[c]||0)+1;return cnt[c]-1;};
+    let mt;
+    if((mt=/^Solar panel (\d)/.exec(name)))return mt[1]==='1'?'sol_a':'sol_f';
+    if(/Cross array spine|Copper radiator tile|Cross arm guide/.test(name))return 'rad_'+(cx<-1?'a':'f');
+    if((mt=/^(Aft|Forward) gold cluster gold tank/.exec(name))){const s=mt[1]==='Aft'?'a':'f';return 'tk_'+s+(n('t'+s)%6);}
+    if((mt=/^(Aft|Forward) gold cluster mount/.exec(name))){const s=mt[1]==='Aft'?'a':'f';return 'tk_'+s+(n('m'+s)%6);}
     if(/rivet|longitudinal edge line|service plate|pale seam|access seam/.test(name))return 'detail';
     if(/Neck rib/.test(name))return 'ribs';
     if(/Bridge sensor/.test(name))return 'sens'+(n('s')%3);
@@ -233,11 +236,17 @@ const Models=(()=>{
     const noz=(r,len,y,z)=>{const b=M(bell(r*.25,r,len),'nozzle',X0+.02,y,z);b.rotation.z=-Math.PI/2;add(b);};
     if(eng===0)for(const a of[0,1,2,3])noz(.13,.3,Math.cos(a*Math.PI/2+.78)*.32,Math.sin(a*Math.PI/2+.78)*.32);
     else if(eng===1)noz(.42,.75,0,0);else{noz(.52,1,0,0);for(const a of[0,1,2])noz(.11,.26,Math.cos(a*2.094)*.5,Math.sin(a*2.094)*.5);}
-    for(let i=0;i<=(o.battery??1);i++)add(M(box(.34,.2,.3),'carbon',-2.75+i*.42,.86,0)),add(M(box(.36,.03,.32),'alu',-2.75+i*.42,.97,0));
+    /* battery packs: dark boxes on top of the mid-section, one per tier */
+    for(let i=0;i<=(o.battery??1);i++){add(M(box(.62,.34,.7),'carbon',-3.3+i*.72,.98,0));add(M(box(.66,.05,.74),'alu',-3.3+i*.72,1.17,0));add(M(box(.5,.02,.5),'copper',-3.3+i*.72,1.2,0));}
+    /* flight computer: avionics boxes along the forward module, with a star tracker (tier 1) and a navigation dome (tier 2) */
+    for(let i=0;i<=comp;i++){add(M(box(.7,.3,.6),'silverfoil',2.6+i*.85,.9,0));add(M(box(.5,.04,.4),'radiator',2.6+i*.85,1.07,0));}
+    if(comp>=1){const t=M(cyl(.14,.11,.36,16),'dark',2.2,1.05,.35);t.rotation.x=.5;add(t);}
+    if(comp>=2){add(M(new T3.SphereGeometry(.26,20,14,0,TAU,0,Math.PI/2),'lens',5.1,.74,0));add(M(cyl(.28,.28,.05,20),'alu',5.1,.74,0));}
     if(o.red&&grp.ant){const a2=grp.ant.clone(true);a2.position.z=-.3;a2.scale.copy(grp.ant.scale);add(a2);add(M(box(.3,.18,.26),'silverfoil',-.2,.78,0));}
     if(o.grey)body.traverse(m=>{if(m.isMesh)m.material=dullMat(m.material);});
     /* the chosen instruments ride under the main bridge */
     const parts={},list=o.inst||['cam','spec','mcs','radar'],slot={cam:-.75,spec:-.3,mcs:.15,radar:.6};
+    if(list.length){g.add(M(box(.2,.025,1.72),'alu',0,-.268,-.08));for(const k of list)for(const sx of[-.07,.07])g.add(M(cyl(.012,.012,.3,6),'alu',sx,-.13,slot[k]));}
     list.forEach(k=>{const p=instPart(k);p.scale.setScalar(.75);p.position.set(0,-.28,slot[k]);if(stow&&k==='radar')p.scale.set(.2,.75,.75);if(o.grey)p.traverse(m=>{if(m.isMesh)m.material=dullMat(m.material);});g.add(p);parts[k]=p;});
     const nl=[.3,.75,1][eng]*GLB.k,fl=plume(0xbcd6ff,3.2,.55);fl.rotation.x=Math.PI/2;fl.position.z=GLB.aft-nl-.1;fl.visible=false;g.add(fl);
     const lamp=new T3.Mesh(new T3.SphereGeometry(.09,10,8),new T3.MeshBasicMaterial({color:0xff4030}));lamp.position.set(0,.75,-.55);lamp.visible=!!o.grey;g.add(lamp);
@@ -315,7 +324,16 @@ const Models=(()=>{
       b.add(M(bell(.035,.085,.14),'nozzle',0,.06,0));b.position.x=d*.325;g.add(b);srb.push(b);}
     let pay=null;if(o.payload){pay=craft(Object.assign({},o.payload,{stowed:true}));const fit=()=>{const L=pay.userData.len||3.4;pay.scale.setScalar(1.95/L*(pay.userData.glb?1:.5));};fit();pay.userData.onSwap=fit;
       pay.rotation.x=-Math.PI/2;pay.position.y=FY+1.08;g.add(pay);}
-    const fl=plume(0xffb878,1.5,.26);fl.position.y=-.6;g.add(fl);g.userData={flame:fl,srb,fair:[fa,fb],core,up,pay,h:FY+2.3};return g;}
+    /* livery and hardware: roll-pattern bands, interstage, raceway, booster struts */
+    for(const y of[.9,1.3])core.add(M(cyl(.2215,.2215,.16,40),'dark',0,y,0));core.add(M(cyl(.226,.226,.05,40),'alu',0,2.16,0));
+    core.add(M(box(.03,1.9,.03),'white',.222,1.1,0));core.add(M(box(.03,1.9,.03),'white',-.11,1.1,.193));
+    for(const d of[-1,1])for(const y of[.35,1.45])core.add(M(box(.14,.025,.025),'alu',d*.26,y,0));
+    up.add(M(cyl(.2225,.2225,.05,40),'copper',0,2.56,0));up.add(M(cyl(.2225,.2225,.02,40),'dark',0,2.36,0));
+    for(const b of srb){b.add(M(cyl(.0965,.0965,.3,24),'copper',0,.95,0));b.add(M(new T3.ConeGeometry(.05,.1,16),'dark',0,1.84,0));}
+    for(const h of[fa,fb]){h.add(M(cyl(FR+.003,FR+.003,.05,40,1,true),'copper',0,1.25,0));}
+    const fl=plume(0xffb878,1.5,.26);fl.position.y=-.02;g.add(fl);
+    const sf=srb.map(b=>{const p=plume(0xffd9a0,1.3,.14);p.position.y=0;p.visible=false;b.add(p);return p;});
+    g.userData={flame:fl,sf,srb,fair:[fa,fb],core,up,pay,h:FY+2.3};return g;}
 
   /* ---------- planets, with a thin atmosphere that glows on the sunlit edge ---------- */
   function planet(name){
@@ -384,6 +402,32 @@ const Models=(()=>{
   const POSE={title:{m:[3.3,-.2,-9,3],e:[-70,6,-90,1.5]},briefing:{m:[5.4,1.6,-15,2.4],e:[-70,6,-90,1.5]},science:{m:[-6.2,-3.2,-12,3.2],e:[-70,6,-90,1.5]},
     planning:{m:[9,4,-70,1.1],e:[-6.5,-4.6,-12,4]},design:{m:[30,14,-160,1],e:[0,-13.5,-14,12]},review:{m:[30,14,-160,1],e:[1.5,-13.2,-14,12]},
     cruise:{m:[8,3.2,-90,1.1],e:[-10,-4.5,-80,1.2]},moi:{m:[5.2,-2,-10,4.2],e:[-60,20,-200,1]},ops:{m:[0,-14.3,-14,12.6],e:[-60,20,-200,1]},debrief:{m:[4.6,-1,-17,3],e:[-14,7,-120,1]}};
+  Object.assign(POSE,{site:POSE.ops,m2brief:POSE.debrief,m2prep:POSE.design,rover:POSE.ops,outpost:POSE.ops,m2debrief:POSE.debrief});
+  const LABS=['design','review','m2prep'];
+  /* a spacecraft assembly hall: epoxy floor, wall displays, an overhead crane, workstations, parts on racks */
+  function buildLab(){const g=new T3.Group(),S_=o=>new T3.MeshStandardMaterial(Object.assign({roughness:.6,metalness:.1,envMapIntensity:.4},o)),E=c=>new T3.MeshBasicMaterial({color:c});
+    const B=(w,h,d,mt,x,y,z)=>{const o=new T3.Mesh(new T3.BoxGeometry(w,h,d),mt);o.position.set(x,y,z);g.add(o);return o;};
+    const fc=cvs(512,512),fx=fc.getContext('2d');fx.fillStyle='#7f888c';fx.fillRect(0,0,512,512);fx.strokeStyle='rgba(255,255,255,.14)';fx.lineWidth=2;for(let i=0;i<=512;i+=64){fx.beginPath();fx.moveTo(i,0);fx.lineTo(i,512);fx.moveTo(0,i);fx.lineTo(512,i);fx.stroke();}
+    fx.strokeStyle='#e0b020';fx.lineWidth=10;fx.strokeRect(150,150,212,212);const ft=new T3.CanvasTexture(fc);ft.wrapS=ft.wrapT=T3.RepeatWrapping;ft.repeat.set(5,4);ft.encoding=T3.sRGBEncoding;
+    const fl=new T3.Mesh(new T3.PlaneGeometry(60,44),S_({map:ft,roughness:.28,metalness:.2,envMapIntensity:.9}));fl.rotation.x=-Math.PI/2;fl.position.set(0,-4,-16);g.add(fl);
+    const wall=S_({color:0xcfd5d8}),steel=S_({color:0x6d747a,metalness:.6,roughness:.4}),yel=S_({color:0xe0a820,roughness:.5}),dark=S_({color:0x23272b}),gold=S_({color:0xd6a94a,metalness:.9,roughness:.35});
+    B(60,16,.5,wall,0,4,-30);B(.5,16,44,wall,-22,4,-12);B(.5,16,44,wall,22,4,-12);B(60,.5,44,S_({color:0x9aa2a6}),0,11.5,-12);
+    for(let i=-2;i<=2;i++)for(const z of[-8,-16,-24])B(5.5,.12,.9,E(0xf4f7ff),i*8,11.2,z);                     /* strip lights */
+    B(46,.8,1,yel,0,9.2,-18);B(1.4,.9,1.6,yel,6,8.5,-18);B(.08,3.2,.08,steel,6,6.5,-18);B(.5,.3,.5,steel,6,4.8,-18);   /* bridge crane and hook */
+    for(const x of[-21,21]){B(.6,13,.6,steel,x,2.5,-18);}
+    const scr=(x,y,z,w,h,col,ry)=>{const o=B(w,h,.12,dark,x,y,z);o.rotation.y=ry||0;const s=new T3.Mesh(new T3.PlaneGeometry(w*.92,h*.86),E(col));s.position.set(0,0,.07);o.add(s);return o;};
+    scr(-10,4.5,-29.6,9,4.6,0x16324a);scr(2,4.5,-29.6,9,4.6,0x10283c);scr(13,4.5,-29.6,7,4.6,0x3a2a12);                /* wall displays */
+    for(let i=0;i<7;i++){B(.9,.06+i%3*.5,.02,E(0x4fb3d8),-13.4+i*1.1,3.2+(i%3)*.25,-29.5);}B(6,.05,.02,E(0xf2b84f),13,4.9,-29.5);B(4,.05,.02,E(0xf2b84f),12.2,4.1,-29.5);
+    for(const [x,ry] of[[-15,.5],[-17.5,.9],[15,-.5],[17.5,-.9]]){const d=B(3.2,.14,1.5,S_({color:0xe6e8ea}),x,-2.3,-11);d.rotation.y=ry;B(.12,1.7,.12,steel,x-.9,-3.15,-11);B(.12,1.7,.12,steel,x+.9,-3.15,-11);scr(x,-1.5,-11.3,1.5,.95,0x1c5270,ry);}
+    for(const x of[-9,9]){B(.2,5,.2,steel,x-2,-1.5,-24);B(.2,5,.2,steel,x+2,-1.5,-24);for(const y of[-3,-1.4,.2])B(4.4,.12,1.4,steel,x,y,-24);            /* parts racks */
+      B(1,1,1,gold,x-1,-2.4,-24);B(.9,.7,.9,S_({color:0xe9e5dc}),x+.9,-2.55,-24);B(1.2,.9,1,gold,x+.6,-.9,-24);B(.8,.8,.8,dark,x-1.1,-.95,-24);
+      const tk=new T3.Mesh(new T3.SphereGeometry(.55,20,14),gold);tk.position.set(x-.2,.8,-24);g.add(tk);}
+    const sp=B(3.2,5,.08,S_({color:0x1b2a72,metalness:.6,roughness:.25}),-3.5,-1.4,-25);sp.rotation.set(-.12,.3,0);B(3.3,.1,.1,steel,-3.5,1.1,-25.2);
+    const dish=new T3.Mesh(new T3.SphereGeometry(1.5,28,14,0,TAU,0,.75),S_({color:0xf2efe8,side:T3.DoubleSide,roughness:.4}));dish.position.set(3.4,-1.4,-25);dish.rotation.set(1.9,0,.2);g.add(dish);B(.12,2.6,.12,steel,3.4,-2.7,-25.4);
+    const st=new T3.Mesh(new T3.CylinderGeometry(2.6,2.8,.35,36),steel);st.position.set(0,-3.8,-17);g.add(st);const st2=new T3.Mesh(new T3.CylinderGeometry(2.2,2.2,.1,36),yel);st2.position.set(0,-3.58,-17);g.add(st2);   /* integration stand */
+    for(const a of[.5,2.1,3.7,5.3]){B(.1,3.4,.1,yel,Math.cos(a)*3.3,-2.3,-17+Math.sin(a)*3.3);}
+    const l1=new T3.PointLight(0xf2f6ff,.9,60);l1.position.set(0,9,-12);g.add(l1);const l2=new T3.PointLight(0xfff0d8,.5,50);l2.position.set(-12,5,-20);g.add(l2);
+    return g;}
   function backdrop(canvas){
     try{T3=T3||window.THREE;if(!T3||!canvas)return null;
       const r=new T3.WebGLRenderer({canvas,antialias:true,powerPreference:'low-power'});r.setPixelRatio(1);r.setClearColor(0x050403);grade(r);
@@ -393,7 +437,7 @@ const Models=(()=>{
       sg.setAttribute('position',new T3.BufferAttribute(sp,3));const stars=new T3.Points(sg,new T3.PointsMaterial({color:0xefe6d9,size:1.5,sizeAttenuation:false}));scene.add(stars);
       const mars=planet('mars'),earth=planet('earth');scene.add(mars,earth);
       for(const p of[mars,earth])p.userData.sun.set(...sunPos).normalize();
-      let cur=null,tgt=POSE.title,last=0,slow=0,w=0,h=0,dead=false;
+      let cur=null,tgt=POSE.title,last=0,slow=0,w=0,h=0,dead=false,lab=null,inLab=false;
       const put=(o,a)=>{o.position.set(a[0],a[1],a[2]);o.scale.setScalar(a[3]);};
       const still=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
       canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();dead=true;});
@@ -406,9 +450,10 @@ const Models=(()=>{
         const k=still()?1:1-Math.exp(-dt*1.4);for(const key of['m','e'])for(let i=0;i<4;i++)cur[key][i]+=(tgt[key][i]-cur[key][i])*k;
         put(mars,cur.m);put(earth,cur.e);
         if(!still()){mars.rotation.y+=dt*.012;earth.rotation.y+=dt*.016;earth.userData.clouds.rotation.y+=dt*.004;stars.rotation.y+=dt*.0015;}
+        if(inLab&&!lab){lab=buildLab();scene.add(lab);}if(lab)lab.visible=inLab;mars.visible=earth.visible=stars.visible=!inLab;r.setClearColor(inLab?0x1a1d20:0x050403);
         const t0=performance.now();r.render(scene,cam);slow=performance.now()-t0>28?slow+1:Math.max(0,slow-1);}
       requestAnimationFrame(frame);
-      return {stage:n=>{if(POSE[n])tgt=POSE[n];}};
+      return {stage:n=>{if(POSE[n])tgt=POSE[n];inLab=LABS.includes(n);}};
     }catch(e){console.warn('Backdrop unavailable:',e&&e.message);return null;}}
 
   const use=fn=>(...a)=>{T3=T3||window.THREE;return fn(...a);};

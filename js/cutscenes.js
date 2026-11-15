@@ -19,6 +19,43 @@ const Cine=(()=>{
   /* true size and true distance: one scene unit is mpu metres (4.4 m in spacecraft shots, 12.2 m in rocket shots) */
   function planetAt(p,Rkm,distKm,dir,mpu=M_PER_UNIT){const rad=Rkm*1000/mpu,Dr=distKm*1000/mpu;p.scale.setScalar(rad);p.position.set(dir[0]*Dr,dir[1]*Dr,dir[2]*Dr);}
   const setSun=(x,y,z)=>sun.position.set(x,y,z);
+  let bay=null,tmpV=null,qA=null,qB=null;
+  function buildBay(){bay=new T3.Group();const S_=o=>new T3.MeshStandardMaterial(Object.assign({roughness:.6,metalness:.15,envMapIntensity:.5},o)),E=c=>new T3.MeshBasicMaterial({color:c});
+    const add=(geo,mt,x,y,z,par)=>{const m=new T3.Mesh(geo,mt);m.position.set(x,y,z);(par||bay).add(m);return m;},box=(w,h,d)=>new T3.BoxGeometry(w,h,d),cy=(a,b,h,n=20)=>new T3.CylinderGeometry(a,b,h,n);
+    /* walls: a panelled module interior */
+    const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');x.fillStyle='#d9d6cf';x.fillRect(0,0,512,512);x.strokeStyle='#9d9a93';x.lineWidth=3;for(let i=0;i<=512;i+=128){x.strokeRect(i+4,4,120,248);x.strokeRect(i+4,260,120,248);}
+    x.fillStyle='#6f6c66';for(let i=0;i<4;i++)for(let j=0;j<2;j++){x.fillRect(i*128+12,j*256+12,6,6);x.fillRect(i*128+110,j*256+236,6,6);}x.fillStyle='#2f4f7a';x.fillRect(20,120,90,10);x.fillRect(276,376,90,10);
+    const wt=new T3.CanvasTexture(c);wt.encoding=T3.sRGBEncoding;wt.wrapS=wt.wrapT=T3.RepeatWrapping;wt.repeat.set(2,1);
+    add(box(6,3.6,6),S_({map:wt,color:0x8f8c88,side:T3.BackSide,roughness:.85,envMapIntensity:.15}),0,0,0);
+    for(const z of[-1.6,1.2])add(box(2.4,.06,.22),E(0xf6f8ff),0,1.76,z);
+    /* the toilet: base cabinet, bowl with seat ring and lid, urine hose with funnel, thigh bars, foot loops */
+    const white=S_({color:0xeeeae2}),steel=S_({color:0x9aa0a6,metalness:.8,roughness:.3}),dark=S_({color:0x2a2c30}),blue=S_({color:0x2c5fa8,roughness:.5}),yel=S_({color:0xe2b63a});
+    add(box(.9,.8,.9),white,-1.9,-1.3,-1.7);add(cy(.3,.34,.36,28),steel,-1.9,-.76,-1.7);const seat=add(new T3.TorusGeometry(.24,.06,12,28),white,-1.9,-.56,-1.7);seat.rotation.x=Math.PI/2;
+    const lid=add(cy(.3,.3,.04,28),white,-1.9,-.3,-2.0);lid.rotation.x=1.25;add(cy(.1,.1,.02,20),dark,-1.9,-.6,-1.7);
+    const hose=add(new T3.TorusGeometry(.3,.025,8,24,3.6),dark,-1.42,-.8,-1.5);hose.rotation.set(.2,.9,.3);const fun=add(new T3.ConeGeometry(.09,.2,18,1,true),yel,-1.2,-.52,-1.3);fun.rotation.z=2.6;
+    for(const d of[-1,1]){const t=add(cy(.025,.025,.6,8),steel,-1.9+d*.36,-.5,-1.45);t.rotation.x=1.35;const f=add(new T3.TorusGeometry(.11,.02,8,16),blue,-1.9+d*.2,-1.68,-1.15);f.rotation.x=Math.PI/2;}
+    add(box(.5,.34,.06),dark,-1.9,.35,-2.93);add(box(.42,.26,.02),E(0x1d6a8c),-1.9,.35,-2.89);
+    /* water line along the wall with the burst joint and its valve, handrails, avionics rack on the far wall */
+    const pipe=add(cy(.05,.05,5.6,12),steel,0,-.2,-2.86);pipe.rotation.z=Math.PI/2;add(cy(.09,.09,.16,14),S_({color:0xb04a2a,metalness:.5}),-.55,-.2,-2.82).rotation.z=Math.PI/2;
+    const wheel=add(new T3.TorusGeometry(.13,.025,8,18),S_({color:0xc0392b}),-.55,-.2,-2.7);
+    const spray=sprite(0xbfe2ff);spray.position.set(-.5,-.2,-2.55);spray.scale.setScalar(.3);bay.add(spray);
+    for(const [hx,hy,hz,ry] of[[1.2,.9,-2.9,0],[-2.9,.4,.6,Math.PI/2],[2.9,-.4,-.4,Math.PI/2]]){const r=add(cy(.03,.03,1.3,10),blue,hx,hy,hz);r.rotation.z=Math.PI/2;r.rotation.y=ry;}
+    add(box(.5,2.2,1.6),dark,2.72,-.2,-1.2);const leds=[];for(let i=0;i<8;i++)for(let j=0;j<3;j++)add(box(.02,.05,.05),E((i+j)%3?0x58d68d:0xf2b84f),2.46,.7-i*.25,-1.7+j*.5);
+    for(let i=0;i<4;i++)add(box(.02,.16,1.3),S_({color:0x3d434c}),2.46,.55-i*.5,-1.2);
+    /* crew member in a flight suit */
+    const suit=S_({color:0x2e62b0,roughness:.8}),skin=S_({color:0xd9a37e,roughness:.7}),A=new T3.Group();
+    add(cy(.2,.17,.62,16),suit,0,0,0,A);add(new T3.SphereGeometry(.14,20,16),skin,0,.47,0,A);add(new T3.SphereGeometry(.145,20,12,0,6.283,0,1.5),dark,0,.49,-.01,A);add(cy(.06,.07,.08,10),skin,0,.34,0,A);
+    add(box(.34,.1,.2),S_({color:0xe9e5dc}),0,.2,.0,A);
+    const limb=(len,mt,px,py)=>{const piv=new T3.Group();piv.position.set(px,py,0);const m=new T3.Mesh(cy(.055,.05,len,10),mt);m.position.y=-len/2;piv.add(m);A.add(piv);return piv;};
+    const armR=limb(.55,suit,.24,.24),armL=limb(.55,suit,-.24,.24),legL=limb(.7,suit,-.1,-.3),legR=limb(.7,suit,.1,-.3);
+    for(const p of[armR,armL])add(new T3.SphereGeometry(.06,10,8),skin,0,-.58,0,p);for(const p of[legL,legR])add(box(.1,.07,.2),white,0,-.72,.04,p);
+    const wr=new T3.Group();add(box(.04,.34,.03),steel,0,-.78,0,wr);add(new T3.TorusGeometry(.05,.018,6,12,4.6),steel,0,-.97,0,wr);armR.add(wr);
+    A.scale.setScalar(1.25);bay.add(A);
+    const blobs=[];const wm=new T3.MeshStandardMaterial({color:0xa8d8ff,transparent:true,opacity:.62,roughness:.05,metalness:.1,envMapIntensity:1.6});for(let i=0;i<16;i++)blobs.push(add(new T3.SphereGeometry(.1,16,12),wm,0,0,0));
+    const key=new T3.PointLight(0xf4f7ff,.85,12);key.position.set(0,1.5,.4);bay.add(key);const red=new T3.PointLight(0xff3020,1,7);red.position.set(1.6,1.4,-2.4);bay.add(red);
+    const beacon=add(new T3.SphereGeometry(.08,12,10),E(0xff2a1a),1.6,1.55,-2.8);
+    bay.userData={astro:A,armR,armL,legL,legR,blobs,red,beacon,spray,wheel};scene.add(bay);all.push(bay);}
+
 
   function buildPad(){const g=new T3.Group(),S=o=>new T3.MeshStandardMaterial(Object.assign({roughness:1,metalness:0,envMapIntensity:0},o));
     const c=document.createElement('canvas');c.width=c.height=1024;const x=c.getContext('2d'),r=rng(5);x.fillStyle='#66704c';x.fillRect(0,0,1024,1024);
@@ -46,7 +83,7 @@ const Cine=(()=>{
     try{
       T3=window.THREE;if(!T3)throw new Error('three.js not loaded');
       R=new T3.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true});R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));R.setClearColor(0x000000);Models.grade(R);
-      scene=new T3.Scene();cam=new T3.PerspectiveCamera(42,1,.3,4e9);bg=new T3.Color();fog=new T3.Fog(0x7fb2e6,120,1250);
+      tmpV=new T3.Vector3();qA=new T3.Quaternion();qB=new T3.Quaternion();scene=new T3.Scene();cam=new T3.PerspectiveCamera(42,1,.3,4e9);bg=new T3.Color();fog=new T3.Fog(0x7fb2e6,120,1250);
       gtex=Models.sprite(0xffffff).material.map;
       /* stars: faint ones everywhere, a denser band for the Milky Way, and a few bright ones, each with its own tint */
       const r=rng(77);stars=new T3.Group();
@@ -75,7 +112,7 @@ const Cine=(()=>{
   function show(...on){all.forEach(x=>{x.visible=on.includes(x);});if(craft)craft.visible=on.includes(craft);}
   const flame=(g,on,k=1)=>{const f=g.userData.flame;f.visible=on;if(on){const w=(.9+Math.random()*.2)*k;f.scale.set(w,w*(.9+Math.random()*.25),w);}};
   function resetRocket(){const d=rocket.userData;d.srb.forEach((b,i)=>{b.position.set((i?1:-1)*.325,0,0);b.rotation.set(0,0,0);b.visible=true;});d.core.position.set(0,0,0);d.core.visible=true;d.up.visible=true;
-    d.fair.forEach(f=>{f.position.set(0,FY,0);f.rotation.set(0,0,0);f.visible=true;});if(d.pay)d.pay.visible=true;d.flame.visible=false;rk.scale.setScalar(1);rk.position.set(0,0,0);rk.rotation.set(0,0,0);}
+    d.fair.forEach(f=>{f.position.set(0,FY,0);f.rotation.set(0,0,0);f.visible=true;});if(d.pay)d.pay.visible=true;d.flame.visible=false;if(d.sf)d.sf.forEach(p=>p.visible=false);rk.scale.setScalar(1);rk.position.set(0,0,0);rk.rotation.set(0,0,0);}
   /* exhaust and steam on the pad: soft grey puffs that roll out along the ground, plus a trail under the rocket */
   function stepSmoke(dt,h,lit,rate){for(const p of puffs){p.age+=dt;const s=p.s;
       if(p.age>p.life){if(!lit||Math.random()>rate){s.visible=false;continue;}
@@ -89,11 +126,11 @@ const Cine=(()=>{
   function seedParts(mode,x0=2.9){const p=parts.geometry.attributes.position.array;pv=[];
     for(let i=0;i<NP;i++){if(mode==='burst'){const a=Math.random()*6.283,z=Math.random()*2-1,q=Math.sqrt(1-z*z),v=2+Math.random()*16;pv.push([q*Math.cos(a)*v,z*v,q*Math.sin(a)*v]);p[i*3]=p[i*3+1]=p[i*3+2]=0;}
       else if(mode==='smoke'){pv.push([0,0,0,9]);p[i*3]=0;p[i*3+1]=-50;p[i*3+2]=0;}
-      else{pv.push([-(9+Math.random()*14),0,0]);p[i*3]=x0-Math.random()*16;p[i*3+1]=(Math.random()-.5)*2.2;p[i*3+2]=(Math.random()-.5)*2.6;}}
+      else{const an=Math.random()*6.283,rd=3.1+Math.random()*1.1;pv.push([-(9+Math.random()*14),0,0]);p[i*3]=x0-Math.random()*18;p[i*3+1]=Math.cos(an)*rd;p[i*3+2]=Math.sin(an)*rd;}}
     parts.userData.mode=mode;parts.userData.x0=x0;parts.geometry.attributes.position.needsUpdate=true;}
   function stepParts(mode,dt,h=0,rate=1){const p=parts.geometry.attributes.position.array,x0=parts.userData.x0||2.9;
     for(let i=0;i<NP;i++){const v=pv[i];p[i*3]+=v[0]*dt;p[i*3+1]+=v[1]*dt;p[i*3+2]+=v[2]*dt;
-      if(mode==='stream'&&p[i*3]<x0-16){p[i*3]=x0;p[i*3+1]=(Math.random()-.5)*2.2;p[i*3+2]=(Math.random()-.5)*2.6;}
+      if(mode==='stream'&&p[i*3]<x0-18){const an=Math.random()*6.283,rd=3.1+Math.random()*1.1;p[i*3]=x0;p[i*3+1]=Math.cos(an)*rd;p[i*3+2]=Math.sin(an)*rd;}
       if(mode==='burst'){v[0]*=.992;v[1]*=.992;v[2]*=.992;}
       if(mode==='smoke'){v[3]+=dt;v[0]*=.97;v[2]*=.97;if(p[i*3+1]<.15&&v[1]<0){p[i*3+1]=.15;v[1]=.6+Math.random()*1.6;const a=Math.random()*6.283,sp=5+Math.random()*13;v[0]=Math.cos(a)*sp;v[2]=Math.sin(a)*sp;}
         if(v[3]>2.6+Math.random()*2&&Math.random()<rate){v[3]=0;const a=Math.random()*6.283;p[i*3]=Math.cos(a)*.25;p[i*3+2]=Math.sin(a)*.25;p[i*3+1]=h-.2;v[0]=Math.cos(a)*1.2;v[2]=Math.sin(a)*1.2;v[1]=-(9+Math.random()*7);}}}
@@ -113,7 +150,7 @@ const Cine=(()=>{
         setSun(5,6,4);sun.intensity=2;sky.material.color.setScalar(dark);fog.color.setRGB(.74*dark,.84*dark,.95*dark);scene.fog=fog;stars.visible=false;
         pad.userData.ground.material.color.set((window.__game&&__game.SITES[S.site]||{}).tint||0x5a5a5a);
         rk.position.set(0,h+.16,0);rk.rotation.set(0,0,-l*l*.1);pad.userData.arm.visible=u<T0-.05;
-        const lit=u>T0-.045,w0=1.1+Math.random()*.3;f.visible=lit;f.position.y=-.95;f.scale.set(w0,(u<T0?.8:2.4)+Math.random()*.5,w0);
+        const lit=u>T0-.045,w0=1.1+Math.random()*.3,len=(u<T0?.7:2.1)+Math.random()*.4;f.visible=lit;f.position.y=-.02;f.scale.set(w0,len,w0);D.sf.forEach(p=>{p.visible=lit;p.scale.set(w0,len*1.15,w0);});
         stepSmoke(dt,h,lit,u<T0?.35:.8);
         const sh=lit?.07*(1-l):0,j=()=>(Math.random()-.5)*sh;cam.position.set(8+j(),.9+h*.62+j(),11.5+l*3);cam.lookAt(-.3,h+2.7-l*.6,0);sky.position.copy(cam.position);sky.position.y=0;
         const w=sm(CUT-.04,CUT,u);flash.position.copy(cam.position).add(new T3.Vector3(-.5,.2,-1).normalize().multiplyScalar(3));flash.scale.setScalar(40);flash.material.opacity=w;flash.visible=w>0;}
@@ -123,7 +160,7 @@ const Cine=(()=>{
         const q=cl((m-.1)/.26);D.srb.forEach((b,i)=>{const d=i?1:-1;b.position.set(d*(.325+q*2.4),-q*q*8,0);b.rotation.z=d*q*1.5;b.visible=q<1;});
         const r=cl((m-.48)/.26);D.core.position.y=-r*r*10;D.core.visible=r<1;
         const q2=cl((m-.66)/.26);D.fair.forEach((h,i)=>{const d=i?1:-1;h.position.set(0,FY-q2*q2*5,d*q2*2.6);h.rotation.x=d*q2*1.25;h.visible=q2<1;});
-        const first=m<.46,second=m>.54;f.visible=first||second;f.position.y=first?-1:1.95;{const k=(first?2.4:1.7)*(1+Math.random()*.15);f.scale.set(k,first?1.7:1.2,k);}
+        const first=m<.46,second=m>.54;f.visible=first||second;f.position.y=first?-.02:2.14;D.sf.forEach(p=>{p.visible=q<=0;p.scale.set(1.6,1.5,1.6);});{const k=(first?2.4:1.7)*(1+Math.random()*.15);f.scale.set(k,first?1.7:1.2,k);}
         const y=2.2+m*1.6;cam.position.set(-7+m*11,-.6+m*1.6,13.5-m*5.5);cam.lookAt(ax*y,ay*y-1.6,0);
         const w=1-sm(0,.07,m);flash.position.copy(cam.position).add(new T3.Vector3(.3,0,-1).normalize().multiplyScalar(3));flash.scale.setScalar(40);flash.material.opacity=w;flash.visible=w>0;}},
     /* The upper stage finishes the departure burn, lets go, and the spacecraft unfolds. Earth falls away behind. */
@@ -131,7 +168,7 @@ const Cine=(()=>{
       sun.intensity=2;earth.userData.clouds.material.opacity=.7;planetAt(earth,EARTH,EARTH+2500+u*u*32000,nrm(-.2,-.5,-.85));earth.rotation.set(.4,2.6+s*.01,.1);
       D.srb.forEach(b=>b.visible=false);D.core.visible=false;D.fair.forEach(h=>h.visible=false);if(D.pay)D.pay.visible=false;
       const sep=sm(.26,.9,u)*14,aft=craft.userData.glb?-2.7:-.8;rk.scale.setScalar(ROCKET_SCALE);rk.rotation.set(Math.PI/2,0,0);rk.position.set(0,-sep*.08,aft-(FY+.04)*ROCKET_SCALE-sep);
-      D.flame.visible=u<.2;D.flame.position.y=1.95;{const k=.9+Math.random()*.2;D.flame.scale.set(k,2.2,k);}
+      D.flame.visible=u<.2;D.flame.position.y=2.14;{const k=.9+Math.random()*.2;D.flame.scale.set(k,2.2,k);}
       craft.position.set(0,0,0);craft.rotation.set(0,0,sm(.3,1,u)*.5);if(craft.userData.deploy)craft.userData.deploy(sm(.4,.78,u));
       const a=.95-u*.5;cam.position.set(Math.sin(a)*14,3.2+u,Math.cos(a)*14-3+u*3);cam.lookAt(0,0,-3+u*3);},
     /* Deep space. Mars is 400,000 km ahead: a disc one degree across. */
@@ -164,20 +201,33 @@ const Cine=(()=>{
       cam.position.set(7.5+j()*2,2.6+j()*2,13);cam.lookAt(0,-1.2,0);},
     /* Aerobraking at 125 km: the horizon is only 15 degrees below level and the air is thick enough to glow */
     aerobrake(u,s,o,dt){show(mars,craft,glow,parts);setSun(-5,3,4);planetAt(mars,MARS,MARS+125,nrm(.05,-1,-.18));mars.rotation.set(.4,1.2,s*.02);
-      craft.position.set(0,Math.sin(s*9)*.05,0);craft.rotation.set(0,Math.PI/2,.12);
-      glow.position.set(2.7,-.2,0);glow.material.color.set(0xff7a3c);glow.material.opacity=.45+.35*Math.sin(u*Math.PI);glow.scale.setScalar(7.5+Math.sin(s*30));
-      parts.material.color.set(0xff9a50);parts.material.size=.45;parts.material.opacity=1;stepParts('stream',dt);
-      cam.position.set(8-u*2.8,2.8,13);cam.lookAt(0,-1,0);},
+      /* nose first along +x, on a shallow pass that dips and climbs again; the glow sits ahead of the nose */
+      const dip=Math.sin(u*Math.PI);craft.position.set(0,-dip*.6+Math.sin(s*9)*.04,0);craft.rotation.set(0,Math.PI/2,.06-.1*(u-.5));if(craft.userData.deploy)craft.userData.deploy(1);
+      glow.position.set(4.3,craft.position.y-.1,0);glow.material.color.set(0xff7a3c);glow.material.opacity=.25+.45*dip;glow.scale.setScalar(4.5+dip*2.5+Math.sin(s*30)*.4);
+      parts.position.set(1.2,craft.position.y,0);parts.material.color.set(0xff9a50);parts.material.size=.32;parts.material.opacity=.35+.6*dip;stepParts('stream',dt);
+      cam.position.set(15-u*5,4.2,23);cam.lookAt(-1,-1.6,0);},
     /* An instrument looks straight down 300 km */
     discovery(u,s,o){show(mars,craft,beam,...rings);setSun(-5,3.5,3);planetAt(mars,MARS,MARS+300,nrm(0,-1,0));mars.rotation.set((o.tilt||0)+s*.006,1.4,0);
-      craft.position.set(0,0,0);craft.rotation.set(0,.5+s*.05,0);const L=300000/M_PER_UNIT;
-      beam.position.set(0,-L/2-.3,0);beam.scale.set(L*.035,L,L*.035);beam.material.color.set(o.col||0x8fc8da);beam.material.opacity=.045+.02*Math.sin(s*6);
-      rings.forEach((g,i)=>{const p=(s*.4+i/4)%1;g.rotation.set(Math.PI/2,0,0);g.position.set(0,-.3-p*L,0);g.scale.setScalar(.1+p*L*.034);g.material.color.set(o.col||0x8fc8da);g.material.opacity=.8*(1-p*.6);});
-      const a=.5+u*1.1;cam.position.set(Math.sin(a)*12,5.2-u,Math.cos(a)*12);cam.lookAt(0,-2.2,0);},
+      craft.position.set(0,0,0);craft.rotation.set(0,.5+s*.05,0);craft.updateMatrixWorld(true);const L=300000/M_PER_UNIT;
+      /* the beam leaves from the working instrument, just below its aperture, and widens toward the ground */
+      const ip=craft.userData.parts&&(craft.userData.parts[o.inst]||Object.values(craft.userData.parts)[0]),A=tmpV.set(0,-.3,0);if(ip){ip.getWorldPosition(A);A.y-=.42;}
+      beam.position.set(A.x,A.y-L/2,A.z);beam.scale.set(L*.03,L,L*.03);beam.material.color.set(o.col||0x8fc8da);beam.material.opacity=.045+.02*Math.sin(s*6);
+      rings.forEach((g,i)=>{const p=(s*.4+i/4)%1;g.rotation.set(Math.PI/2,0,0);g.position.set(A.x,A.y-.05-p*L,A.z);g.scale.setScalar(.04+p*L*.03);g.material.color.set(o.col||0x8fc8da);g.material.opacity=.8*(1-p*.6);});
+      const a=.5+u*1.1;cam.position.set(Math.sin(a)*21,7.5-u*1.5,Math.cos(a)*21);cam.lookAt(0,-3.4,0);},
     /* End of mission, 400 km up. Earth is a blue point above the horizon. */
     finale(u,s){show(mars,craft,dot);setSun(-5,3,4);planetAt(mars,MARS,MARS+400,nrm(.1,-1,-.3));mars.rotation.set(s*.004,2,.2);
       dot.position.set(330+u*20,215,-1300);dot.scale.setScalar(15);dot.material.opacity=.95;
-      craft.position.set(-1.5,0,0);craft.rotation.set(.1,2.4+s*.03,.08);cam.position.set(4.5-u*1.5,1.8,14-u*2.5);cam.lookAt(1,-1.7,-6);},
+      /* the spacecraft slews until its nose points at Earth, then holds */
+      craft.position.set(-1.5,0,0);craft.rotation.set(.1,2.4,.08);qA.copy(craft.quaternion);craft.lookAt(dot.position);qB.copy(craft.quaternion);craft.quaternion.copy(qA).slerp(qB,sm(.12,.72,u));
+      cam.position.set(5.5-u*1.5,2.2,17-u*3);cam.lookAt(1,-1.4,-6);},
+    /* inside the hygiene bay: a burst water line, free-floating water, one crew member with a wrench */
+    toilet(u,s,o,dt){if(!bay)buildBay();show(bay);stars.visible=false;sun.intensity=.25;setSun(1,2,2);const B=bay.userData;
+      B.red.intensity=.7+.7*Math.sin(s*6);B.beacon.material.color.setRGB(.5+.5*Math.sin(s*6),.05,.04);
+      B.blobs.forEach((b,i)=>{const t=(s*.11+i/B.blobs.length)%1;b.position.set(-2.2+t*4.3,-.2+Math.sin(i*2.3+s*.8)*.55+(i%3-1)*.35,-1.5+Math.cos(i*1.7+s*.5)*.6+t*1.2);b.scale.setScalar((.5+(i%4)*.22)*(1+.12*Math.sin(s*3+i)));});
+      const a=B.astro;a.position.set(.25+Math.sin(s*.5)*.05,-.3+Math.sin(s*.8)*.06,-1.35);a.rotation.set(.18+Math.sin(s*.6)*.04,-.9,.12+Math.sin(s*.45)*.05);
+      B.armR.rotation.z=-1.25+Math.sin(s*5)*.22*sm(.25,.4,u);B.armL.rotation.z=.9+Math.sin(s*.7)*.08;B.legL.rotation.x=.25+Math.sin(s*.9)*.1;B.legR.rotation.x=-.2+Math.cos(s*.8)*.1;
+      B.spray.visible=true;B.spray.scale.setScalar(.34+.1*Math.sin(s*23));B.spray.material.opacity=.55;
+      cam.position.set(1.6-u*.5,.35+u*.2,2.4-u*.3);cam.lookAt(-.8,-.45,-1.6);},
     explosion(u,s,o,dt){show(craft,flash,parts);craft.visible=u<.1;craft.position.set(0,0,0);craft.rotation.set(s*3,s*2,0);setSun(-6,3,5);
       flash.position.set(0,0,0);flash.scale.setScalar(8+u*90);flash.material.opacity=Math.max(0,1-u*2.4);
       parts.material.color.set(0xf2b84f);parts.material.size=.6;parts.material.opacity=1;if(u>.08)stepParts('burst',dt);
@@ -200,7 +250,7 @@ const Cine=(()=>{
       if(craft){scene.remove(craft);}
       craft=Models.craft(Object.assign({},craftOpts(),{computer:S.sel.computer}));scene.add(craft);
       if(id==='launch'||id==='depart'){rk.remove(rocket);rocket=Models.rocket({payload:craftOpts()});rocket.rotation.y=.8;rk.add(rocket);}
-      setSun(-6,3,5);sun.intensity=2.8;stars.rotation.set(0,0,0);stars.visible=true;scene.background=null;scene.fog=null;craft.scale.setScalar(1);parts.userData.mode='';
+      setSun(-6,3,5);sun.intensity=2.8;stars.rotation.set(0,0,0);stars.visible=true;parts.position.set(0,0,0);scene.background=null;scene.fog=null;craft.scale.setScalar(1);parts.userData.mode='';
       if(id==='explosion')seedParts('burst');if(id==='aerobrake'||id==='toodeep')seedParts('stream');
     }else{c2=document.createElement('canvas');el.prepend(c2);ctx2=c2.getContext('2d');}
     size();addEventListener('resize',size);

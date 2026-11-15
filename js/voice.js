@@ -7,8 +7,8 @@
    Narration is off until the player turns it on. The choice and the volume are remembered.
    Subtitles are always shown, so nothing is lost when narration is off or unavailable. */
 const Voice=(()=>{
-  let on=false,vol=.9,voice=null,man=null,aud=null;
-  try{on=localStorage.getItem('mcb-voice')==='1';const v=parseFloat(localStorage.getItem('mcb-voice-vol'));if(v>=0&&v<=1)vol=v;}catch(e){}
+  let on=true,vol=.9,voice=null,man=null,aud=null;
+  try{on=localStorage.getItem('mcb-voice')!=='0';const v=parseFloat(localStorage.getItem('mcb-voice-vol'));if(v>=0&&v<=1)vol=v;}catch(e){}
   const synth=window.speechSynthesis||null;
   const key=t=>{let h=2166136261;for(let i=0;i<t.length;i++){h^=t.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);};
   function pick(){if(!synth)return;const vs=synth.getVoices().filter(v=>/^en/i.test(v.lang));if(!vs.length)return;

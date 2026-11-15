@@ -59,3 +59,24 @@ Picking a launch site sets `S.site`. From then on `cap()` returns that site's ma
 ## Testing hooks
 
 `window.__game` exposes `S`, `go()`, `plan()`, `design()`, `checks()` and `DEMO.k` (a speed factor: 0.02 runs the game fifty times faster). During a minigame, `window.__mini.solve()` and `.fail()` end it either way.
+
+---
+
+## Expansion: two missions, rover, help buttons
+
+**Two missions.** `S.mission` is 1 or 2. `TRACKS` in `js/game.js` lists the screens of each; `startMission(n)` starts one. Campaign results live in the browser under `mcb-campaign` (`CAMP.m1`, `CAMP.m2`), and the mission in progress under `mcb-save` (written on every screen change, restored by "Continue").
+
+- Mission 1, *Orbital Reconnaissance*: one task, **choose the landing site**. The new `VIEW.site` screen shows what your instruments measured over Jezero for three candidate sites (`SURV`). It shows measurements only, and "no data" for any instrument you did not fly or did not point at Jezero.
+- Mission 2, *The Red Frontier* (`js/mission2.js`): briefing → rover preparation → rover expedition → five-sol outpost → debrief. It reads the site and survey from `CAMP.m1`; without Mission 1 you land without a site report.
+
+**Rover (`js/rover.js`).** `Rover.start({root, site, loadout})` returns a Promise that resolves with the expedition result. The terrain is a generated height map drawn once to a canvas, with a second canvas for fog of war. `step(dt)` is the physics (acceleration, coasting, braking, sand, slopes, collisions, map edge, battery). Rock classes and their compositions are in `CLS`; the eleven formations in `FORM`. All terrain and compositions are simulated and labelled so on screen.
+
+**Help (`js/help.js`).** `Help.q('key')` returns a small "?" button. All explanations live in the one table at the top of that file (`what`, `why`, `act`, optional `more` and `draw`). To add one: add an entry, then put `${Help.q('yourKey')}` in any screen. `Help.temp({...})` registers a one-off entry built from live numbers.
+
+**Hardware controls.** `.tsw` (toggle switch) and `.brk` (main breaker) are plain buttons styled in `style.css`; the class `on` flips the lever.
+
+**Events.** `evStorm` no longer destroys the spacecraft: dose damages electronics (`S.radDeg`), interrupts a pass and raises crew radiation. `evRock` is rare (`S.cr.rock`, 8% of missions). `evToilet` plays the rendered `toilet` scene from `js/cutscenes.js` (`buildBay()` builds the hygiene bay), then the valve task. `evPanel` shows eight telemetry channels with their normal ranges and highlights nothing.
+
+**Demo controls** are hidden. Add `?demo` to the address to show them.
+
+**Not done yet.** Narration still uses the browser's built-in voice; recorded voice files can be dropped in through the manifest hook in `js/voice.js`. The exported GMAT script has not been run in GMAT.
