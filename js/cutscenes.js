@@ -3,7 +3,7 @@
    Cine.play(sceneId, options) returns a Promise that resolves when the scene ends or is skipped.
    If three.js or WebGL is unavailable, a simple 2D version plays instead, so the game never blocks. */
 const Cine=(()=>{
-  let current=null,ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,rk,pad,glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex,bg,fog,all=[];
+  let current=null,ok=null,T3,R,scene,cam,stars,sun,mars,earth,craft,kestrel,rocket,rk,pad,sky,smoke,puffs=[],glow,flash,rings=[],parts,pv=[],beam,sunSpr,dot,gtex,bg,fog,all=[];
   const NP=420;
   /* ---- real proportions ----
      Every scene is built at real size and real distance (the renderer uses a logarithmic depth buffer so that a
@@ -27,7 +27,7 @@ const Cine=(()=>{
     x.strokeStyle='rgba(232,222,196,.8)';x.lineWidth=5;x.beginPath();for(let j=0;j<=1024;j+=32)x.lineTo(698+Math.sin(j*.011)*60,j);x.stroke();
     x.strokeStyle='#8f8a80';x.lineWidth=3;x.beginPath();x.moveTo(512,512);x.lineTo(60,640);x.moveTo(512,512);x.lineTo(380,40);x.stroke();
     const t=new T3.CanvasTexture(c);t.encoding=T3.sRGBEncoding;t.anisotropy=8;
-    const gr=new T3.Mesh(new T3.CircleGeometry(1300,72),S({map:t,color:0x5a5a5a}));gr.rotation.x=-Math.PI/2;g.add(gr);
+    const gr=new T3.Mesh(new T3.CircleGeometry(1300,72),S({map:t,color:0x5a5a5a}));gr.rotation.x=-Math.PI/2;g.add(gr);g.userData.ground=gr;
     const apron=new T3.Mesh(new T3.CircleGeometry(7,48),S({color:0x4e4c48}));apron.rotation.x=-Math.PI/2;apron.position.y=.02;g.add(apron);
     const B=(w,h,d,m,px,py,pz)=>{const o=new T3.Mesh(new T3.BoxGeometry(w,h,d),m);o.position.set(px,py,pz);g.add(o);return o;};
     const conc=S({color:0x77736b}),steel=S({color:0x7d2f22,roughness:.7,metalness:.3}),dark=S({color:0x1c1b1a});
@@ -48,10 +48,19 @@ const Cine=(()=>{
       R=new T3.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true});R.setPixelRatio(Math.min(2,window.devicePixelRatio||1));R.setClearColor(0x000000);Models.grade(R);
       scene=new T3.Scene();cam=new T3.PerspectiveCamera(42,1,.3,4e9);bg=new T3.Color();fog=new T3.Fog(0x7fb2e6,120,1250);
       gtex=Models.sprite(0xffffff).material.map;
-      const sg=new T3.BufferGeometry(),sp=new Float32Array(2600*3),r=rng(77);
-      for(let i=0;i<2600;i++){const a=r()*Math.PI*2,z=r()*2-1,q=Math.sqrt(1-z*z);sp[i*3]=q*Math.cos(a)*3200;sp[i*3+1]=z*3200;sp[i*3+2]=q*Math.sin(a)*3200;}
-      sg.setAttribute('position',new T3.BufferAttribute(sp,3));
-      stars=new T3.Points(sg,new T3.PointsMaterial({color:0xefe6d9,size:1.7,sizeAttenuation:false,fog:false,depthTest:false,depthWrite:false}));stars.renderOrder=-10;stars.frustumCulled=false;scene.add(stars);
+      /* stars: faint ones everywhere, a denser band for the Milky Way, and a few bright ones, each with its own tint */
+      const r=rng(77);stars=new T3.Group();
+      const field=(n,size,band)=>{const g=new T3.BufferGeometry(),P=new Float32Array(n*3),C=new Float32Array(n*3);
+        for(let i=0;i<n;i++){const a=r()*Math.PI*2;let z=r()*2-1;if(band)z=(r()+r()+r()-1.5)*.28;const q=Math.sqrt(1-z*z),x=q*Math.cos(a),y=z,w=q*Math.sin(a);
+          P[i*3]=(x*.8-y*.6)*3200;P[i*3+1]=(x*.6+y*.8)*3200;P[i*3+2]=w*3200;const t=r(),b=.35+r()*.65;C[i*3]=b*(t<.25?.8:1);C[i*3+1]=b*(t<.25?.88:t>.8?.9:.97);C[i*3+2]=b*(t>.8?.72:1);}
+        g.setAttribute('position',new T3.BufferAttribute(P,3));g.setAttribute('color',new T3.BufferAttribute(C,3));
+        const pts=new T3.Points(g,new T3.PointsMaterial({size,sizeAttenuation:false,vertexColors:true,fog:false,depthTest:false,depthWrite:false,transparent:true,opacity:band?.6:1}));pts.renderOrder=-10;pts.frustumCulled=false;stars.add(pts);};
+      field(3200,1.2);field(2600,1,true);field(160,2.6);scene.add(stars);
+      /* daytime sky for the launch pad: pale at the horizon, deep blue overhead */
+      {const g=new T3.SphereGeometry(1250,32,16),n=g.attributes.position.count,C=new Float32Array(n*3);
+        for(let i=0;i<n;i++){const t=Math.pow(Math.max(0,g.attributes.position.getY(i)/1250),.55);C[i*3]=mix(.74,.1,t);C[i*3+1]=mix(.84,.28,t);C[i*3+2]=mix(.95,.62,t);}
+        g.setAttribute('color',new T3.BufferAttribute(C,3));sky=new T3.Mesh(g,new T3.MeshBasicMaterial({vertexColors:true,side:T3.BackSide,fog:false,depthWrite:false}));sky.renderOrder=-9;}
+      smoke=new T3.Group();for(let i=0;i<80;i++){const sp=Models.sprite(0xd8d2ca,false);sp.visible=false;smoke.add(sp);puffs.push({s:sp,v:[0,0,0],age:9,life:1,size:1,grow:2});}
       sun=new T3.DirectionalLight(0xfff3e2,2.8);scene.add(sun);scene.add(new T3.AmbientLight(0x6a5a52,.22));scene.environment=Models.envMap();
       mars=Models.planet('mars');earth=Models.planet('earth');kestrel=Models.craft({grey:true,wing:1,dish:1});rk=new T3.Group();rocket=Models.rocket();rocket.rotation.y=.8;rk.add(rocket);pad=buildPad();
       glow=sprite(0xea6f3c);flash=sprite(0xffffff);sunSpr=sprite(0xfff0c8);dot=sprite(0x9fd0ff);flash.material.fog=false;
@@ -59,14 +68,23 @@ const Cine=(()=>{
       const pg=new T3.BufferGeometry();pg.setAttribute('position',new T3.BufferAttribute(new Float32Array(NP*3),3));
       parts=new T3.Points(pg,new T3.PointsMaterial({size:.35,map:gtex,color:0xf2b84f,transparent:true,blending:T3.AdditiveBlending,depthWrite:false}));parts.frustumCulled=false;
       beam=new T3.Mesh(new T3.ConeGeometry(1,1,40,1,true),new T3.MeshBasicMaterial({color:0x8fc8da,transparent:true,opacity:.2,side:T3.DoubleSide,blending:T3.AdditiveBlending,depthWrite:false}));
-      all=[mars,earth,kestrel,rk,pad,glow,flash,sunSpr,dot,parts,beam,...rings];all.forEach(x=>scene.add(x));
+      all=[mars,earth,kestrel,rk,pad,sky,smoke,glow,flash,sunSpr,dot,parts,beam,...rings];all.forEach(x=>scene.add(x));
       ok=true;
     }catch(e){console.warn('3D cutscenes unavailable, using 2D fallback:',e&&e.message);ok=false;}
     return ok;}
   function show(...on){all.forEach(x=>{x.visible=on.includes(x);});if(craft)craft.visible=on.includes(craft);}
-  const flame=(g,on,k=1)=>{const f=g.userData.flame;f.visible=on;if(on)f.scale.setScalar((1.6+Math.random()*.7)*k);};
+  const flame=(g,on,k=1)=>{const f=g.userData.flame;f.visible=on;if(on){const w=(.9+Math.random()*.2)*k;f.scale.set(w,w*(.9+Math.random()*.25),w);}};
   function resetRocket(){const d=rocket.userData;d.srb.forEach((b,i)=>{b.position.set((i?1:-1)*.325,0,0);b.rotation.set(0,0,0);b.visible=true;});d.core.position.set(0,0,0);d.core.visible=true;d.up.visible=true;
     d.fair.forEach(f=>{f.position.set(0,FY,0);f.rotation.set(0,0,0);f.visible=true;});if(d.pay)d.pay.visible=true;d.flame.visible=false;rk.scale.setScalar(1);rk.position.set(0,0,0);rk.rotation.set(0,0,0);}
+  /* exhaust and steam on the pad: soft grey puffs that roll out along the ground, plus a trail under the rocket */
+  function stepSmoke(dt,h,lit,rate){for(const p of puffs){p.age+=dt;const s=p.s;
+      if(p.age>p.life){if(!lit||Math.random()>rate){s.visible=false;continue;}
+        p.age=0;const a=Math.random()*6.283,trail=h>4&&Math.random()<.6;
+        if(trail){s.position.set((Math.random()-.5)*.3,h-.6,(Math.random()-.5)*.3);p.v=[(Math.random()-.5)*1.4,-(4+Math.random()*5),(Math.random()-.5)*1.4];p.life=1.6+Math.random()*1.8;p.size=.9;p.grow=4;}
+        else{s.position.set(Math.cos(a)*.3,.35,Math.sin(a)*.3);const sp=3.5+Math.random()*8;p.v=[Math.cos(a)*sp,.2+Math.random()*1.3,Math.sin(a)*sp];p.life=2.6+Math.random()*3;p.size=1.3;p.grow=3.6;}}
+      s.position.x+=p.v[0]*dt;s.position.y+=p.v[1]*dt;s.position.z+=p.v[2]*dt;p.v[0]*=.975;p.v[2]*=.975;
+      if(s.position.y<.3){s.position.y=.3;const a=Math.atan2(s.position.z,s.position.x),sp=4+Math.random()*7;p.v=[Math.cos(a)*sp,.5+Math.random(),Math.sin(a)*sp];}
+      const t=p.age/p.life;s.scale.setScalar(p.size*(1+t*p.grow));s.material.opacity=.5*(1-t)*Math.min(1,t*7);s.visible=true;}}
   /* particles: 'burst' (debris), 'stream' (hot gas flowing back along +x to -x), 'smoke' (launch pad and exhaust trail) */
   function seedParts(mode,x0=2.9){const p=parts.geometry.attributes.position.array;pv=[];
     for(let i=0;i<NP;i++){if(mode==='burst'){const a=Math.random()*6.283,z=Math.random()*2-1,q=Math.sqrt(1-z*z),v=2+Math.random()*16;pv.push([q*Math.cos(a)*v,z*v,q*Math.sin(a)*v]);p[i*3]=p[i*3+1]=p[i*3+2]=0;}
@@ -91,12 +109,13 @@ const Cine=(()=>{
     /* Launch in two shots. On the pad: a 62 m rocket, a tower and a horizon five kilometres away.
        Then from 90 to 240 km up: booster separation, stage separation, fairing jettison. */
     launch(u,s,o,dt){const T0=.27,CUT=.56,D=rocket.userData,f=D.flame;
-      if(u<CUT){show(pad,rk,parts,flash);resetRocket();const l=cl((u-T0)/(CUT-T0)),h=l*l*85,sky=l*l*.8;
-        setSun(5,6,4);bg.setRGB(mix(.16,.004,sky),mix(.33,.012,sky),mix(.62,.05,sky));sun.intensity=2;scene.background=bg;fog.color.copy(bg);scene.fog=fog;stars.visible=false;
+      if(u<CUT){show(pad,rk,sky,smoke,flash);resetRocket();const l=cl((u-T0)/(CUT-T0)),h=l*l*85,dark=1-l*l*.8;
+        setSun(5,6,4);sun.intensity=2;sky.material.color.setScalar(dark);fog.color.setRGB(.74*dark,.84*dark,.95*dark);scene.fog=fog;stars.visible=false;
+        pad.userData.ground.material.color.set((window.__game&&__game.SITES[S.site]||{}).tint||0x5a5a5a);
         rk.position.set(0,h+.16,0);rk.rotation.set(0,0,-l*l*.1);pad.userData.arm.visible=u<T0-.05;
-        const lit=u>T0-.045;f.visible=lit;f.position.y=-1;f.scale.set(1.1+Math.random()*.3,(u<T0?1:2.6)+Math.random()*.6,1);
-        if(parts.userData.mode!=='smoke')seedParts('smoke');parts.material.color.set(0xcfc6ba);parts.material.size=3;parts.material.opacity=.05;if(lit)stepParts('smoke',dt,h,u<T0?.5:1);
-        const sh=lit?.07*(1-l):0,j=()=>(Math.random()-.5)*sh;cam.position.set(8+j(),.9+h*.62+j(),11.5+l*3);cam.lookAt(-.3,h+2.7-l*.6,0);
+        const lit=u>T0-.045,w0=1.1+Math.random()*.3;f.visible=lit;f.position.y=-.95;f.scale.set(w0,(u<T0?.8:2.4)+Math.random()*.5,w0);
+        stepSmoke(dt,h,lit,u<T0?.35:.8);
+        const sh=lit?.07*(1-l):0,j=()=>(Math.random()-.5)*sh;cam.position.set(8+j(),.9+h*.62+j(),11.5+l*3);cam.lookAt(-.3,h+2.7-l*.6,0);sky.position.copy(cam.position);sky.position.y=0;
         const w=sm(CUT-.04,CUT,u);flash.position.copy(cam.position).add(new T3.Vector3(-.5,.2,-1).normalize().multiplyScalar(3));flash.scale.setScalar(40);flash.material.opacity=w;flash.visible=w>0;}
       else{const m=(u-CUT)/(1-CUT);show(earth,rk,flash);resetRocket();scene.background=null;scene.fog=null;stars.visible=true;setSun(-3,4,5);sun.intensity=2;
         planetAt(earth,EARTH,EARTH+90+m*150,nrm(0,-1,0),62/5.1);earth.userData.clouds.material.opacity=.3;earth.rotation.set(.75,2.2,.2+s*.0004);
@@ -104,7 +123,7 @@ const Cine=(()=>{
         const q=cl((m-.1)/.26);D.srb.forEach((b,i)=>{const d=i?1:-1;b.position.set(d*(.325+q*2.4),-q*q*8,0);b.rotation.z=d*q*1.5;b.visible=q<1;});
         const r=cl((m-.48)/.26);D.core.position.y=-r*r*10;D.core.visible=r<1;
         const q2=cl((m-.66)/.26);D.fair.forEach((h,i)=>{const d=i?1:-1;h.position.set(0,FY-q2*q2*5,d*q2*2.6);h.rotation.x=d*q2*1.25;h.visible=q2<1;});
-        const first=m<.46,second=m>.54;f.visible=first||second;f.position.y=first?-1:1.95;{const k=(first?1.7:.8)*(1+Math.random()*.25);f.scale.set(k,k,1);}
+        const first=m<.46,second=m>.54;f.visible=first||second;f.position.y=first?-1:1.95;{const k=(first?2.4:1.7)*(1+Math.random()*.15);f.scale.set(k,first?1.7:1.2,k);}
         const y=2.2+m*1.6;cam.position.set(-7+m*11,-.6+m*1.6,13.5-m*5.5);cam.lookAt(ax*y,ay*y-1.6,0);
         const w=1-sm(0,.07,m);flash.position.copy(cam.position).add(new T3.Vector3(.3,0,-1).normalize().multiplyScalar(3));flash.scale.setScalar(40);flash.material.opacity=w;flash.visible=w>0;}},
     /* The upper stage finishes the departure burn, lets go, and the spacecraft unfolds. Earth falls away behind. */
@@ -112,7 +131,7 @@ const Cine=(()=>{
       sun.intensity=2;earth.userData.clouds.material.opacity=.7;planetAt(earth,EARTH,EARTH+2500+u*u*32000,nrm(-.2,-.5,-.85));earth.rotation.set(.4,2.6+s*.01,.1);
       D.srb.forEach(b=>b.visible=false);D.core.visible=false;D.fair.forEach(h=>h.visible=false);if(D.pay)D.pay.visible=false;
       const sep=sm(.26,.9,u)*14,aft=craft.userData.glb?-2.7:-.8;rk.scale.setScalar(ROCKET_SCALE);rk.rotation.set(Math.PI/2,0,0);rk.position.set(0,-sep*.08,aft-(FY+.04)*ROCKET_SCALE-sep);
-      D.flame.visible=u<.2;D.flame.position.y=1.95;D.flame.scale.set(.55+Math.random()*.15,1.5+Math.random()*.5,1);
+      D.flame.visible=u<.2;D.flame.position.y=1.95;{const k=.9+Math.random()*.2;D.flame.scale.set(k,2.2,k);}
       craft.position.set(0,0,0);craft.rotation.set(0,0,sm(.3,1,u)*.5);if(craft.userData.deploy)craft.userData.deploy(sm(.4,.78,u));
       const a=.95-u*.5;cam.position.set(Math.sin(a)*14,3.2+u,Math.cos(a)*14-3+u*3);cam.lookAt(0,0,-3+u*3);},
     /* Deep space. Mars is 400,000 km ahead: a disc one degree across. */
@@ -171,9 +190,9 @@ const Cine=(()=>{
     drawCraft(ctx,W*(.2+.25*u),H*.5,1.7,{wing:S.sel.power,dish:S.sel.comms,inst:S.fl?S.fl.on:undefined,rot:-.3+u*.25});}
 
   function play(id,o={}){return new Promise(res=>{
-    const lines=o.lines||[],dl=lines.map(l=>2+l.text.length*.055),total=Math.max(o.min||5,dl.reduce((a,b)=>a+b,0)+.9);
+    const lines=o.lines||[],talk=typeof Voice!=='undefined'&&Voice.on,dl=lines.map(l=>talk?Voice.est(l.text):2+l.text.length*.055),total=Math.max(o.min||5,dl.reduce((a,b)=>a+b,0)+.9);
     const el=document.createElement('div');el.className='cine';
-    el.innerHTML=`<div class="big" id="cBig">${o.big||''}</div><div class="capwrap"><div class="aura" id="cAura"></div><div class="cap" id="cCap" aria-live="polite"></div></div><button class="ghost skip" id="cSkip">Skip</button><div class="cfade" id="cFade"></div>`;
+    el.innerHTML=`<div class="big" id="cBig">${o.big||''}</div><div class="capwrap"><div class="aura" id="cAura"></div><div class="cap" id="cCap" aria-live="polite"></div></div><button class="ghost skip" id="cSkip">Skip</button><div class="cgrade"></div><div class="cfade" id="cFade"></div>`;
     document.body.appendChild(el);
     const use3=init()&&!!SC[id];let c2,ctx2;
     const size=()=>{if(use3){R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.fov=innerWidth<innerHeight?62:42;cam.updateProjectionMatrix();}else{c2.width=innerWidth;c2.height=innerHeight;}};
@@ -193,8 +212,8 @@ const Cine=(()=>{
        instead of a hard cut. */
     const fadeEl=el.querySelector('#cFade'),FT=still?0:Math.round(520*Math.min(1,k));let closing=false;
     requestAnimationFrame(()=>requestAnimationFrame(()=>{if(!closing){fadeEl.style.transitionDuration=FT+'ms';fadeEl.classList.add('clear');el.classList.add('on');}}));
-    const finish=()=>{if(!alive)return;alive=false;current=null;removeEventListener('resize',size);
-      if(use3&&R.domElement.parentNode===el)el.removeChild(R.domElement);el.querySelectorAll('.big,.capwrap,.skip,canvas').forEach(x=>x.remove());
+    const finish=()=>{if(!alive)return;alive=false;current=null;if(talk)Voice.stop();removeEventListener('resize',size);
+      if(use3&&R.domElement.parentNode===el)el.removeChild(R.domElement);el.querySelectorAll('.big,.capwrap,.skip,.cgrade,canvas').forEach(x=>x.remove());
       el.classList.add('out');el.style.transitionDuration=FT+'ms';
       if(o.aura){S.aura+=o.aura;}if(typeof chrome==='function')chrome();res();
       requestAnimationFrame(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),FT+60);});};
@@ -207,11 +226,11 @@ const Cine=(()=>{
       let s=(now-t0)/1000/k,u=Math.min(1,s/total);const dt=Math.min(.05,(now-last)/1000);last=now;
       if(o.at!=null){u=o.at;s=u*total+(now-t0)/1000*.0;} /* o.at freezes the scene at one moment (used to check every shot) */
       let acc=0,cur=-1;for(let i=0;i<lines.length;i++){if(s>=acc+.25&&s<acc+dl[i])cur=i;acc+=dl[i];}
-      if(cur!==shown){shown=cur;const l=lines[cur];cap.innerHTML=l?`${l.who?`<span class="who">${WHO[l.who][0]}</span>`:''}${l.text}`:'';}
+      if(cur!==shown){shown=cur;const l=lines[cur];cap.innerHTML=l?`${l.who?`<span class="who">${WHO[l.who][0]}</span>`:''}${l.text}`:'';if(l&&talk&&o.at==null)Voice.say(l.text,l.who||'narrator');}
       if(o.count){const n=Math.ceil((.27-u)/.27*5);big.textContent=n>0?n:'Lift-off';big.classList.toggle('in',u<.5);}
       else if(o.big&&u>(o.bigAt??.12))big.classList.add('in');
       if(o.aura&&u>.5){au.classList.add('in');au.textContent='AURA +'+Math.round(o.aura*Math.min(1,(u-.5)/.3)).toLocaleString('en-US');}
-      if(use3){SC[id](still?.5:u,still?3:s,o,dt);mars.userData.sun.copy(sun.position).normalize();earth.userData.sun.copy(sun.position).normalize();earth.userData.clouds.rotation.y+=dt*.004;R.render(scene,cam);}else draw2(ctx2,c2.width,c2.height,u,s);
+      if(use3){SC[id](still?.5:u,still?3:s,o,dt);if(!still){cam.rotation.z+=Math.sin(s*.43)*.0035;cam.rotation.x+=Math.sin(s*.31+1)*.002;}mars.userData.sun.copy(sun.position).normalize();earth.userData.sun.copy(sun.position).normalize();earth.userData.clouds.rotation.y+=dt*.004;R.render(scene,cam);}else draw2(ctx2,c2.width,c2.height,u,s);
       if(s>=total&&!closing&&o.at==null)end();
       requestAnimationFrame(fr);})(t0);
   });}

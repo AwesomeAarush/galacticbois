@@ -5,6 +5,14 @@ const VE=Math.sqrt(MU/AU), VM=Math.sqrt(MU/(RM*AU)), NE=0.9856474, NM=0.5240208;
 const MU_M=42828.4, R_MARS=3389.5, C_KMS=299792.458;
 const BASE=Date.UTC(2028,5,1), DAY=864e5;
 const MASS_CAP=1200, BUDGET=180;
+/* Launch sites. Earth spins fastest at the equator (465 m/s x cos latitude), and a rocket launched east keeps that
+   speed for free, so a site nearer the equator lifts more. A site far from the equator also puts the spacecraft in
+   an orbit tilted well away from the plane of the planets, and straightening that out costs propellant.
+   The real spin speeds are shown; the mass, cost and tilt numbers are tuned for the game. */
+const SITES={kourou:{n:'Kourou',where:'French Guiana',lat:5.2,inc:23.4,cap:1250,cost:9,dv:0,tint:0x4f6a4a,d:'Almost on the equator.'},
+  canaveral:{n:'Cape Canaveral',where:'Florida, USA',lat:28.5,inc:28.5,cap:1200,cost:0,dv:20,tint:0x5a5a5a,d:'The standard choice.'},
+  baikonur:{n:'Baikonur',where:'Kazakhstan',lat:45.6,inc:51.6,cap:1120,cost:-7,dv:90,tint:0x8a7a5a,d:'Cheap, but far north.'}};
+const site=()=>SITES[S.site]||SITES.canaveral, cap=()=>site().cap, spin=s=>465.1*Math.cos(rad(s.lat));
 const rad=x=>x*Math.PI/180, deg=x=>x*180/Math.PI;
 const wrap=a=>((a+180)%360+360)%360-180;
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -96,6 +104,9 @@ const NB=[
  ['design','Redundancy','Carrying a spare of a critical part. It costs mass and money and halves the chance that one failure ends the mission.'],
  ['planning','GMAT','NASA’s open-source General Mission Analysis Tool. Mission designers use it to compute and optimise real trajectories. You can export this game’s flight plan as a GMAT script from the review board.'],
  ['review','Requirements and verification','Every requirement is written together with the way it will be checked: by test, analysis, inspection or demonstration. A requirement you cannot verify is only a wish.'],
+ ['planning','Launch site','Earth spins fastest at the equator: 465 m/s. A rocket launched east keeps that speed for free, so sites near the equator lift more.'],
+ ['planning','Spacecraft and launch vehicle','The launch vehicle is the rocket. It lifts the spacecraft off Earth and is then thrown away. The spacecraft is what travels on to Mars.'],
+ ['cruise','Life support','Crews need food, water and oxygen every day. Recycling water and air is what makes a long trip possible.'],
  ['cruise','Light-time delay','Radio travels at 299,792 km/s. Earth to Mars takes 3 to 22 minutes one way, so joystick control is impossible.'],
  ['cruise','Inverse-square law','Sunlight intensity falls with the square of distance. At 1.52 AU you get 1 ÷ 1.52² = 43% of the power.'],
  ['cruise','Trajectory correction','Small burns during cruise remove aiming errors. The earlier you correct, the less propellant it costs.'],
@@ -107,7 +118,7 @@ const NB=[
 ];
 
 /* ============ state ============ */
-function fresh(){return {stage:'title',max:0,inst:{cam:false,spec:false,mcs:false,radar:false},
+function fresh(){return {stage:'title',max:0,site:'canaveral',inst:{cam:false,spec:false,mcs:false,radar:false},
   sel:{structure:1,power:1,battery:1,comms:1,engine:1,computer:1,thermal:1},red:false,prop:250,
   dep:0,transfer:'hohmann',orbit:'aero',P:[],log:[],aura:0,health:0,retries:0,loose:0,fail:[],degr:1,calib:1,name:'Wayfarer',guided:true,quiz:{},bolts:0};}
 let S=fresh(), RUN=0, DEMO={k:1};
@@ -124,13 +135,13 @@ function plan(){
   const vt=S.orbit==='direct'?vc:vell, moi=(vh-vt)*1000;
   const ea=rad(Le(d+tr.T)), ma=rad(Lm(d+tr.T));
   const dist=Math.hypot(RM*Math.cos(ma)-Math.cos(ea),RM*Math.sin(ma)-Math.sin(ea))*AU;
-  return {tr,miss,pen,feasible:Math.abs(miss)<=10,vh,vt,vc,vesc,moi,need:40+pen+moi+60,dist,light:dist/C_KMS/60};
+  return {tr,miss,pen,feasible:Math.abs(miss)<=10,vh,vt,vc,vesc,moi,trim:100+site().dv,need:40+pen+moi+60+site().dv,dist,light:dist/C_KMS/60};
 }
 function bestDep(){let b=0,bm=1e9;for(let d=0;d<=700;d++){const o=S.dep;S.dep=d;const m=Math.abs(plan().miss);S.dep=o;if(m<bm){bm=m;b=d}}return b;}
 const tier=k=>SYS[k].tiers[S.sel[k]];
 function design(){
   const on=IK.filter(k=>S.inst[k]);
-  let dry=0,cost=TR[S.transfer].cost+S.prop*.02;
+  let dry=0,cost=TR[S.transfer].cost+S.prop*.02+site().cost;
   for(const k in SYS){dry+=tier(k).mass;cost+=tier(k).cost;}
   for(const k of on){dry+=INST[k].mass;cost+=INST[k].cost;}
   if(S.red){dry+=45;cost+=12;}
@@ -145,7 +156,7 @@ function design(){
 function checks(){
   const d=design(),p=plan(),c=[];
   const add=(name,ok,detail,crit=true)=>c.push({name,ok,detail,crit});
-  add('Mass below 1,200 kg',d.wet<=MASS_CAP,`${f0(d.wet)} kg launch mass`);
+  add(`Mass below ${f0(cap())} kg`,d.wet<=cap(),`${f0(d.wet)} kg launch mass`);
   add('Cost within 180M credits',d.cost<=BUDGET,`${f1(d.cost)}M committed`);
   add('Trajectory reaches Mars',p.feasible,p.feasible?`Arrival error ${f1(Math.abs(p.miss))}° costs ${f0(p.pen)} m/s to correct`:`Mars is ${f1(Math.abs(p.miss))}° away from your arrival point. Change the departure date.`);
   add('Sufficient power generation',d.genM>=d.bus+d.maxInst,`${f0(d.genM)} W at Mars against ${f0(d.bus)} W for the spacecraft plus ${f0(d.maxInst)} W for the largest instrument`);
@@ -165,13 +176,13 @@ function checks(){
 }
 /* propellant the current design needs for the current flight plan (with a 10% margin), and whether it fits */
 function propNeeded(){const d=design(),p=plan(),ve=tier('engine').isp*G0,exact=d.dry*(Math.exp(p.need/ve)-1),want=d.dry*(Math.exp(p.need*1.1/ve)-1);
-  const room=Math.min(800,MASS_CAP-d.dry),pick=want<=room?Math.ceil(want/10)*10:exact<=room?Math.floor(room/10)*10:Math.floor(room/10)*10;
-  return {exact,want,room,load:clamp(pick,100,800),fits:Math.ceil(exact/10)*10<=room,dryMax:MASS_CAP/Math.exp(p.need/ve),need:p.need};}
+  const room=Math.min(800,cap()-d.dry),pick=want<=room?Math.ceil(want/10)*10:exact<=room?Math.floor(room/10)*10:Math.floor(room/10)*10;
+  return {exact,want,room,load:clamp(pick,100,800),fits:Math.ceil(exact/10)*10<=room,dryMax:cap()/Math.exp(p.need/ve),need:p.need};}
 /* step-by-step help for a failed check: what the numbers mean, and exactly what to press */
 function howTo(i){const d=design(),p=plan(),n=propNeeded(),L=[];let to='design',sec='';
   const light=k=>{const t=SYS[k].tiers,c=S.sel[k],b=t.reduce((a,x,j)=>x.mass<t[a].mass?j:a,0);return b!==c?`${SYS[k].label}: “${t[b].n}” saves ${t[c].mass-t[b].mass} kg`:'';};
   const lighter=()=>['structure','power','battery','comms','computer','thermal'].map(light).filter(Boolean);
-  if(i===0){const over=d.wet-MASS_CAP;sec='structure';L.push(`You are ${f0(over)} kg over the 1,200 kg limit. Launch mass is ${f0(d.dry)} kg of hardware plus ${f0(S.prop)} kg of propellant.`);
+  if(i===0){const over=d.wet-cap();sec='structure';L.push(`You are ${f0(over)} kg over the ${f0(cap())} kg limit for ${site().n}. Launch mass is ${f0(d.dry)} kg of hardware plus ${f0(S.prop)} kg of propellant.`);
     const sv=lighter();if(sv.length)L.push('In Build, switch to lighter parts. '+sv.slice(0,3).join('. ')+'.');
     if(d.on.length)L.push('Or remove an instrument: '+d.on.map(k=>`${INST[k].name} ${INST[k].mass} kg`).join(', ')+'.');L.push('Do not just drain the propellant. Check that “Speed change needed / available” still passes afterwards.');}
   else if(i===1){sec='structure';L.push(`You have committed ${f1(d.cost)}M of 180M, so you must save ${f1(d.cost-BUDGET)}M.`);
@@ -214,15 +225,15 @@ function ask({kicker='',title,body='',choices,cls=''}){return new Promise(res=>{
 });}
 const tell=(kicker,title,body,label='Continue')=>ask({kicker,title,body,choices:[{label}]});
 function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),3200);}
-function teach(t){return `<p class="teach"><b>Concepts:</b> ${t}</p>`;}
+function teach(t){return '';} /* concept lists now live only in the Notebook, to keep screens short */
 
 function chrome(){
   const i=TRACK.findIndex(t=>t[0]===S.stage||(t[0]==='moi'&&S.stage==='ops'));
   $('track').innerHTML=S.stage==='title'?'':TRACK.map((t,j)=>`<li class="${j<i?'done':j===i?'now':''}"${j===i?' aria-current="step"':''}>${j+1} ${t[1]}</li>`).join('');
   let h='';
   if(['science','planning','design','review'].includes(S.stage)){const d=design();
-    h=`<span class="chip ${d.wet>MASS_CAP?'over':''}">${f0(d.wet)} / 1,200 kg</span><span class="chip ${d.cost>BUDGET?'over':''}">${f1(d.cost)} / 180M</span>`;}
-  else if(['cruise','moi','ops'].includes(S.stage))h=`<span class="chip">Health ${f0(S.health)}%</span><span class="chip">Propellant ${f0(S.prop)} kg</span><span class="chip">Aura ${f0(S.aura)}</span>`;
+    h=`<span class="chip ${d.wet>cap()?'over':''}">${f0(d.wet)} / ${f0(cap())} kg</span><span class="chip ${d.cost>BUDGET?'over':''}">${f1(d.cost)} / 180M</span>`;}
+  else if(['cruise','moi','ops'].includes(S.stage))h=`<span class="chip">Health ${f0(S.health)}%</span><span class="chip">Propellant ${f0(S.prop)} kg</span><span class="chip">Aura ${f0(S.aura)}</span>${S.crew?`<span class="chip ${crewLevel()>1?'over':''}">Crew ${CLV[crewLevel()][1]}</span>`:''}`;
   $('hstats').innerHTML=h;
 }
 const LOC={briefing:['Mission briefing','ASEA Mission Control'],science:['Scientific preparation','Science Operations Center'],planning:['Interplanetary planning','Mission Planning Center'],design:['Spacecraft construction','Spacecraft Design Facility'],
@@ -251,9 +262,10 @@ function typeIn(){if(calm()||DEMO.k<.2)return;main.querySelectorAll('.say p:not(
   const tick=now=>{if(my!==RUN||!el.isConnected)return;if(!t0)t0=now;const n=Math.min(full.length,Math.ceil((now-t0)/dur*full.length));
     if(n>=full.length){el.textContent=full;return;}el.innerHTML=esc(full.slice(0,n))+`<span style="visibility:hidden">${esc(full.slice(n))}</span>`;requestAnimationFrame(tick);};
   el.innerHTML=`<span style="visibility:hidden">${esc(full)}</span>`;setTimeout(()=>requestAnimationFrame(tick),(LOC[S.stage]?1150:200)*DEMO.k);});}
-function go(stage){const changed=S.stage!==stage;if(changed)ghost();RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
+function go(stage){const changed=S.stage!==stage;Voice.stop();if(changed)ghost();RUN++;S.stage=stage;S.max=Math.max(S.max,STAGES.indexOf(stage));chrome();window.scrollTo(0,0);setScene(stage);
   if(changed)locCard(stage);VIEW[stage]();
-  if(changed){main.classList.remove('enter');void main.offsetWidth;main.classList.add('enter');typeIn();}}
+  if(changed){main.classList.remove('enter');void main.offsetWidth;main.classList.add('enter');typeIn();
+    const sy=main.querySelector('.say');if(sy&&Voice.on){const tx=sy.querySelector('p:not(.kicker)');setTimeout(()=>{if(S.stage===stage&&!Cine.playing)Voice.say(tx.getAttribute('aria-label')||tx.textContent,sy.dataset.who);},(LOC[stage]?1700:300)*DEMO.k);}}}
 function navRow(back,next,label,disabled,note){return `<div class="nav"><button class="ghost" id="back">${back?'Back':'Main menu'}</button><div class="row">${note?`<span class="dim">${note}</span>`:''}<button class="btn" id="next" ${disabled?'disabled':''}>${label}</button></div></div>`;}
 function bindNav(back,next){$('back').onclick=()=>go(back||'title');$('next').onclick=()=>go(next);}
 
@@ -333,7 +345,7 @@ function drawGlobe(c){
 
 /* ============ story, coaching and glossary ============ */
 const WHO={reyes:['Flight Director Imani Reyes','IR'],lind:['Dr. Tomas Lindqvist, science lead','TL'],park:['Jun “Bolt” Park, systems engineer','JP']};
-function say(w,text){return `<div class="say"><span class="av" aria-hidden="true">${WHO[w][1]}</span><div><p class="kicker">${WHO[w][0]}</p><p>${text}</p></div></div>`;}
+function say(w,text){return `<div class="say" data-who="${w}"><span class="av" aria-hidden="true">${WHO[w][1]}</span><div><p class="kicker">${WHO[w][0]}</p><p>${text}</p></div></div>`;}
 let coachOpen=true;
 function coach(steps){return `<details class="coach" ${coachOpen?'open':''} ontoggle="window.__coach&&window.__coach(this.open)"><summary class="kicker">What to do here</summary><ol>${steps.map(x=>`<li>${x}</li>`).join('')}</ol></details>`;}
 window.__coach=v=>{coachOpen=v;};
@@ -387,14 +399,15 @@ VIEW.title=()=>{
   main.innerHTML=`<section class="titlescreen"><div class="tmain">
     <p class="kicker">ASEA flight operations · single-player story mode</p>
     <h1>Mission Control<span>Beyond</span></h1>
-    <p class="lede">Six years ago ASEA lost its Kestrel orbiter at Mars, halfway through a radar scan that nobody has been able to explain. You are the flight director sending the next spacecraft. Design it, fly it, and decide what it studies.</p>
+    <p class="lede">Six years ago the Kestrel orbiter went silent at Mars. You are the flight director sending the next ship. Design it, fly it, keep its crew alive.</p>
     ${BG?'':'<div class="cvwrap" style="border:0;background:none;max-width:300px"><canvas id="globe"></canvas></div>'}
   </div>
   <div class="panel menu">
     <p class="kicker">Mission 1 · Mars · intermediate</p><h3>The Red Frontier</h3>
     <p class="dim">Investigate Martian atmospheric changes and map the planet’s surface from orbit.</p>
     <label class="kicker" for="scName">Spacecraft call sign</label><input id="scName" class="txt" maxlength="18" value="Wayfarer" autocomplete="off">
-    <label class="row" for="guided" style="gap:8px"><input type="checkbox" id="guided" checked> <span><b>Guided mode.</b> Extra hints and more time. Best for a first flight.</span></label>
+    <label class="row" for="guided" style="gap:8px"><input type="checkbox" id="guided" checked> <span><b>Guided mode.</b> Extra hints and more time.</span></label>
+    ${Voice.available?`<label class="row" for="narr" style="gap:8px"><input type="checkbox" id="narr" ${Voice.on?'checked':''}> <span><b>Narrator.</b> Read the story aloud.</span></label>`:''}
     <button class="btn" id="m1">Begin mission</button>
     ${best?`<p class="mono dim">Best score on this console: ${best.s} (${best.c})</p>`:''}
   </div></section>
@@ -405,6 +418,7 @@ VIEW.title=()=>{
   <details class="coach"><summary class="kicker">How a mission works</summary><ol class="how">
     <li><b>Plan.</b> Choose instruments and a launch date.</li><li><b>Build.</b> Fit everything inside a mass and money limit.</li><li><b>Fly.</b> Handle problems during the trip and brake into orbit.</li><li><b>Explore.</b> Point instruments at Mars and send the data home.</li><li><b>Debrief.</b> See your score and compare with real NASA findings.</li></ol></details>`;
   view3('globe','mars',{},{w:1,h:1,spin:.12,yaw:1.2,pitch:.25},c=>drawGlobe(cv(c,340,340)));
+  if($('narr'))$('narr').onchange=e=>Voice.set(e.target.checked);
   $('m1').onclick=async()=>{
     const nm=($('scName').value||'').replace(/[<>&"'`$\\]/g,'').trim().slice(0,18)||'Wayfarer',gd=$('guided').checked;
     S=fresh();S.name=nm;S.guided=gd;S.dep=bestDep()+12;
@@ -414,35 +428,35 @@ VIEW.title=()=>{
 };
 
 VIEW.briefing=()=>{
-  main.innerHTML=head(1,'Mission briefing','ASEA Mission Control',`Kestrel left three questions unanswered. ${S.name} gets one chance at them, with less mass and less money than Kestrel had.`)+say('reyes','You get 1,200 kilograms and 180 million credits. Kestrel had more of both and still went dark. Spend yours better. I will be on the loop the whole way.')+coach(['Read the three science questions. They decide what is worth carrying.','Check the limits and the six objectives.','Tap any <b>dotted word</b> in the game for a plain-language explanation.'])+`
+  main.innerHTML=head(1,'Mission briefing','ASEA Mission Control',`Kestrel left three questions unanswered. ${S.name} and its crew of three get one chance at them.`)+say('reyes','You get about 1,200 kilograms and 180 million credits. Kestrel had more of both and still went dark. Spend yours better.')+`
   <section class="grid g3">
-    ${[['Question 1','What can surface minerals reveal?','Clays and carbonates only form in water. Finding them tells you where water once sat, and for how long.'],
-       ['Question 2','How does the atmosphere vary?','Temperature, dust and water vapour change with altitude, season and storm. Profiles show the climate at work.'],
-       ['Question 3','Is there ice beneath the surface?','Radar can see through dust and rock to buried ice, the most accessible water left on Mars.']]
+    ${[['Question 1','What do the minerals say?','Clays only form in water. Find them and you find where water once sat.'],
+       ['Question 2','How does the air change?','Temperature, dust and water vapour show the climate at work.'],
+       ['Question 3','Is there buried ice?','Radar sees through dust and rock to the ice underneath.']]
       .map(q=>`<div class="panel"><p class="kicker">${q[0]}</p><h3>${q[1]}</h3><p class="dim">${q[2]}</p></div>`).join('')}
   </section>
-  <section class="panel"><p class="kicker">Concept of operations · the four segments of a science mission</p>
-    <div class="segs">${[['Launch segment','The launch vehicle that puts '+S.name+' on its path to Mars. You pick the date and the transfer.'],['Space segment',S.name+' itself: the orbiter and up to four instruments that collect the data.'],
-      ['Ground segment','ASEA Mission Control and its deep-space antennas. That is you, Reyes and Park.'],['User segment','Dr. Lindqvist’s science team and everyone who will use the data. The mission exists for them.']]
+  <section class="grid g2"><div class="panel"><p class="kicker">Who is who</p><ul class="plain who">
+      <li><b>${S.name}</b><span>The spacecraft. It carries the crew and the instruments all the way to Mars.</span></li>
+      <li><b>Launch vehicle</b><span>The rocket. It only lifts ${S.name} off Earth, then falls away.</span></li>
+      <li><b>Mission Control</b><span>You, on Earth, making the decisions.</span></li></ul></div>
+    <div class="panel"><p class="kicker">Your limits</p><div class="tw"><table>
+      <tr><th>Launch mass</th><td class="num">about 1,200 kg</td></tr><tr><th>Budget</th><td class="num">180M credits</td></tr>
+      <tr><th>Crew</th><td class="num">3, to keep healthy</td></tr><tr><th>Goal</th><td class="num">Mars orbit, data home</td></tr></table></div></div></section>
+  <details class="coach more"><summary class="kicker">More: objectives, how NASA designs a mission, scoring</summary><div class="morebody">
+    <p class="kicker">Primary objectives</p><ul class="plain">${['Reach Mars','Enter a stable orbit','Collect atmospheric measurements','Map selected surface regions','Investigate evidence of past water','Transmit your data to Earth'].map((o,i)=>`<li><span class="num dim">${i+1}</span> ${o}</li>`).join('')}</ul>
+    <p class="kicker">The four segments of a science mission</p>
+    <div class="segs">${[['Launch segment','The rocket.'],['Space segment',S.name+' and its instruments.'],['Ground segment','Mission Control and its antennas.'],['User segment','The scientists who use the data.']]
       .map((x,i)=>`<div class="seg"><span class="num">${i+1}</span><b>${x[0]}</b><p class="dim">${x[1]}</p></div>`).join('')}</div>
-    <p class="kicker" style="margin-top:4px">How NASA designs a mission, and where you do each step</p>
+    <p class="kicker">NASA’s six steps, and where you do each</p>
     <ol class="proc">${[['Identify need and goals','Briefing'],['Define the concept','Briefing'],['Define requirements','Science and trajectory'],['Design','Build'],['Build and verify','Review'],['Implement','Launch to debrief']].map(x=>`<li><b>${x[0]}</b><span>${x[1]}</span></li>`).join('')}</ol>
-    ${teach('Mission segments, concept of operations and the design process, after NASA’s “Design and Develop Science Missions” systems-engineering webinar (2025).')}</section>
-  <section class="split"><div class="panel"><p class="kicker">Mission parameters</p><div class="tw"><table>
-    <tr><th>Maximum spacecraft mass</th><td class="num">1,200 kg</td></tr><tr><th>Available budget</th><td class="num">180M credits</td></tr>
-    <tr><th>Target operational lifetime</th><td class="num">2 years</td></tr><tr><th>Destination</th><td class="num">Mars orbit</td></tr></table></div>
-    <p class="kicker" style="margin-top:6px">Need</p><p class="dim" style="font-size:.92rem">Explain Kestrel’s echo and learn where Mars kept its water, with a spacecraft that survives the trip.</p><p class="kicker" style="margin-top:6px">Goals · primary objectives</p><ul class="plain">
-    ${['Reach Mars','Enter a stable orbit','Collect atmospheric measurements','Map selected surface regions','Investigate evidence of past water','Transmit your data to Earth'].map((o,i)=>`<li><span class="num dim">${i+1}</span> ${o}</li>`).join('')}</ul></div>
-  <div class="panel"><p class="kicker">How you are scored</p><p class="num" style="font-size:.8rem">S = 0.35R + 0.25O + 0.20E + 0.10P + 0.10L</p><ul class="plain dim" style="font-size:.9rem">
-    <li><b style="color:var(--text)">R</b> Scientific return, 35%</li><li><b style="color:var(--text)">O</b> Objective completion, 25%</li><li><b style="color:var(--text)">E</b> Resource efficiency, 20%</li><li><b style="color:var(--text)">P</b> Operational performance, 10%</li><li><b style="color:var(--text)">L</b> Reliability, 10%</li></ul>
-    ${teach('Mars’s physical characteristics, the history of water on Mars, planetary geology, past versus present habitability. Open the Notebook at any time.')}</div></section>
+    <p class="kicker">Score</p><p class="num" style="font-size:.8rem">S = 0.30 science + 0.20 objectives + 0.15 efficiency + 0.15 crew + 0.10 operations + 0.10 reliability</p></div></details>
   ${navRow(false,'science','Accept mission')}`;
   bindNav(null,'science');
 };
 
 VIEW.science=()=>{
   const d=design();
-  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Four instruments are on offer. Each one answers a different question, and each takes a share of your mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`<p class="teach"><b>Begin with the end in mind.</b> Decide what data the science team needs at the end, then work backwards: that data fixes the instruments, and the instruments fix the power, storage and downlink you must build.</p>`+`
+  main.innerHTML=head(2,'Scientific preparation','Science Operations Center','Pick your instruments. Each answers one question and costs mass, money, power and data.')+say('lind','I have waited six years to finish Kestrel’s scan, and only the radar can see under ice. But choose for the questions, not for me. A spacecraft that carries everything may not get there at all.')+coach(['Tap a card to install or remove an instrument.','Match instruments to questions: spectrometer for minerals, profiler for the atmosphere, radar for buried ice, camera for mapping.','You can still change your mind in the build stage.'])+`<p class="teach"><b>Begin with the end in mind:</b> decide what data you need, then pick the instruments that get it.</p>`+`
   <section class="grid g2">${IK.map(k=>{const i=INST[k];return `<button class="opt" data-k="${k}" aria-pressed="${S.inst[k]}">
     <canvas class="i3" id="i3${k}" aria-hidden="true"></canvas><span class="kicker">${i.tag} · ${S.inst[k]?'installed':'left on the ground'}</span><b style="font-family:var(--display);font-size:1.6rem;text-transform:uppercase">${i.name}</b>
     <span>${i.desc}</span><span class="s">${i.mass} kg · ${i.cost}M · ${i.power} W · ${i.data} Gb per observation · reliability ${f0(i.rel*100)}%</span>
@@ -457,16 +471,18 @@ VIEW.science=()=>{
 };
 
 VIEW.planning=()=>{
-  main.innerHTML=head(3,'Interplanetary planning','Mission Planning Center','Earth and Mars both keep moving while you travel. You have to aim at where Mars will be on arrival day, and that only works on certain dates.')+say('reyes','Mars is a moving target. Slide the date until the white cross lands on Mars. Miss by a few degrees and you pay for it in propellant.')+coach(['Drag the <b>departure date</b> until the flight plan says “Window open”.','Pick a transfer. A '+T('hohmann','Hohmann transfer')+' is the cheapest route.','Pick your orbit at Mars, and watch how each choice changes the '+T('deltav')+' you need.'])+`
+  main.innerHTML=head(3,'Interplanetary planning','Mission Planning Center','Pick where to launch from and when. Mars keeps moving, so you aim at where it will be on arrival day.')+say('reyes','Mars is a moving target. Slide the date until the white cross lands on Mars. Miss by a few degrees and you pay for it in propellant.')+coach(['Pick a <b>launch site</b>.','Drag the <b>date</b> until the flight plan says “Window open”.','Pick a route and an orbit. Watch the '+T('deltav','speed change')+' you will need.'])+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div>
     <label for="dep" class="kicker">Departure date</label><input type="range" id="dep" min="0" max="700" step="1" value="${S.dep}">
     <div class="row between"><button class="ghost" id="d-">−1 day</button><b class="num" id="depLab"></b><button class="ghost" id="d+">+1 day</button></div>
     ${S.guided?'<button class="ghost" id="findWin">Show me the launch window</button>':''}
     ${teach('Heliocentric orbits, orbital velocity, Hohmann transfers, launch windows, delta-v. Orbits here are circular and flat, which is close enough to show the idea.')}</div>
-  <div class="grid"><div class="panel"><p class="kicker">Transfer trajectory</p><div class="choices">${Object.keys(TR).map(k=>`<button class="opt" data-tr="${k}" aria-pressed="${S.transfer===k}"><b>${TR[k].n}</b><span class="s">${TR[k].d}</span></button>`).join('')}</div></div>
+  <div class="grid"><div class="panel"><p class="kicker">Launch site</p><div class="sites">${Object.keys(SITES).map(k=>{const s=SITES[k];return `<button class="opt" data-site="${k}" aria-pressed="${S.site===k}"><b>${s.n}</b><span class="s">${s.where} · ${f1(s.lat)}° N</span><span class="s">${s.d}</span>
+      <span class="sitestat"><i>Lifts</i><b>${f0(s.cap)} kg</b><i>Cost</i><b>${s.cost>0?'+':''}${s.cost}M</b><i>Extra speed change</i><b>+${s.dv} m/s</b></span></button>`;}).join('')}</div>
+      <p class="dim" style="font-size:.84rem">Earth spins fastest at the equator. Launching east from ${site().n} gives the rocket <b class="num" style="color:var(--amber)">${f0(spin(site()))} m/s</b> for free.</p></div>
+    <div class="panel"><p class="kicker">Transfer trajectory</p><div class="choices">${Object.keys(TR).map(k=>`<button class="opt" data-tr="${k}" aria-pressed="${S.transfer===k}"><b>${TR[k].n}</b><span class="s">${TR[k].d}</span></button>`).join('')}</div></div>
     <div class="panel"><p class="kicker">Intended Mars orbit</p><div class="choices">${Object.keys(ORB).map(k=>`<button class="opt" data-orb="${k}" aria-pressed="${S.orbit===k}"><b>${ORB[k].n}</b><span class="s">${ORB[k].d}</span></button>`).join('')}</div></div>
     <div class="panel" id="planOut"></div></div></section>
-  <p class="teach"><b>Check it like the professionals.</b> This screen uses the patched-conic method that real designers start from. NASA’s open-source <a href="https://sourceforge.net/projects/gmat/" target="_blank" rel="noopener">General Mission Analysis Tool (GMAT)</a> does the full calculation. You can export this flight plan as a GMAT script from the review board.</p>
   ${navRow(true,'design','Build the spacecraft')}`;
   const c=cv('sys',460,460);
   const upd=()=>{const p=plan();drawSys(c,S.dep,p.tr,null);$('depLab').textContent=dateStr(S.dep);
@@ -474,13 +490,15 @@ VIEW.planning=()=>{
     $('planOut').innerHTML=`<div class="row between"><p class="kicker">Flight plan</p><span class="pill ${st[0]}">${st[1]}</span></div>
       <p>${a<1?'Mars will be where you arrive.':`Mars will be ${f1(a)}° ${p.miss>0?'ahead of':'behind'} your arrival point. Leave ${p.miss>0?'later':'earlier'}.`}</p>
       <div class="tw"><table><tr><th>Arrival</th><td class="num">${dateStr(S.dep+p.tr.T)}</td></tr><tr><th>Travel time</th><td class="num">${f0(p.tr.T)} days</td></tr>
-      <tr><th>Approach speed at Mars</th><td class="num">${f2(p.tr.vinf)} km/s</td></tr><tr><th>Correction for timing error</th><td class="num">${f0(p.pen)} m/s</td></tr>
-      <tr><th>Orbit insertion burn</th><td class="num">${f0(p.moi)} m/s</td></tr><tr><th>Cruise and orbit trims</th><td class="num">100 m/s</td></tr>
-      <tr><th><b style="color:var(--text)">Total speed change needed</b> (${T('deltav')})</th><td class="num"><b>${f0(p.need)} m/s</b></td></tr>
-      <tr><th>Signal delay on arrival</th><td class="num">${f1(p.light)} min one way</td></tr></table></div>`;chrome();};
+      <tr><th><b style="color:var(--text)">Speed change needed</b> (${T('deltav')})</th><td class="num"><b>${f0(p.need)} m/s</b></td></tr></table></div>
+      <details class="how"><summary>Where that number comes from</summary><div class="tw"><table>
+      <tr><th>Braking into Mars orbit</th><td class="num">${f0(p.moi)} m/s</td></tr><tr><th>Fixing the timing error</th><td class="num">${f0(p.pen)} m/s</td></tr>
+      <tr><th>Trims, and tilt from ${site().n}</th><td class="num">${f0(p.trim)} m/s</td></tr><tr><th>Approach speed at Mars</th><td class="num">${f2(p.tr.vinf)} km/s</td></tr>
+      <tr><th>Signal delay on arrival</th><td class="num">${f1(p.light)} min</td></tr></table></div></details>`;chrome();};
   $('dep').oninput=e=>{S.dep=+e.target.value;upd();};
   $('d-').onclick=()=>{S.dep=Math.max(0,S.dep-1);$('dep').value=S.dep;upd();};
   $('d+').onclick=()=>{S.dep=Math.min(700,S.dep+1);$('dep').value=S.dep;upd();};
+  main.querySelectorAll('[data-site]').forEach(b=>b.onclick=()=>{S.site=b.dataset.site;S.propSet=false;VIEW.planning();});
   main.querySelectorAll('[data-tr]').forEach(b=>b.onclick=()=>{S.transfer=b.dataset.tr;VIEW.planning();});
   main.querySelectorAll('[data-orb]').forEach(b=>b.onclick=()=>{S.orbit=b.dataset.orb;VIEW.planning();});
   if($('findWin'))$('findWin').onclick=()=>{S.dep=bestDep();$('dep').value=S.dep;upd();};
@@ -495,7 +513,7 @@ function tierStat(k,t){
 }
 VIEW.design=()=>{
   if(!S.propSet){S.propSet=true;S.prop=propNeeded().load;}
-  main.innerHTML=head(4,'Spacecraft construction','Spacecraft Design Facility','Every part you add makes the spacecraft heavier, and a heavier spacecraft needs more propellant to brake at Mars. Good design is choosing what to leave out.')+say('park','First draft is on your desk, with the instruments you picked. Check the propellant against your flight plan before review. Also, I counted 4,212 bolts on this thing. I intend to arrive with 4,212.')+coach(['Start from a template, or change one system at a time.','Watch <b>Live budgets</b>. Red means over the limit.','Fix everything in the “Not ready” list, then send it to review.'])+`
+  main.innerHTML=head(4,'Spacecraft construction','Spacecraft Design Facility','Every part adds mass, and mass needs propellant. Good design is choosing what to leave out.')+say('park','First draft is on your desk, with the instruments you picked. Check the propellant against your flight plan before review. Also, I counted 4,212 bolts on this thing. I intend to arrive with 4,212.')+coach(['Start from a template, or change one system at a time.','Watch <b>Live budgets</b>. Red means over the limit.','Fix everything in the “Not ready” list, then send it to review.'])+`
   <section class="split"><div class="panel">
     <div class="sys"><div class="lab"><b>Start from a template</b><span class="dim" style="font-size:.85rem;max-width:52ch">Templates set the systems and load propellant for your flight plan. They keep the instruments you chose in stage 2.</span></div>
       <div class="opts">${Object.keys(PRE).map(k=>`<button class="opt" data-pre="${k}"><b>${PRE[k].n}</b><span class="s">${PRE[k].d}</span></button>`).join('')}</div></div>
@@ -514,7 +532,7 @@ VIEW.design=()=>{
   const upd=()=>{const d=design(),p=plan(),ck=checks(),bad=ck.filter(x=>x.crit&&!x.ok);{const n=propNeeded();$('propHint').textContent=n.fits?`Needs about ${f0(Math.ceil(n.exact/10)*10)} kg. Room for ${f0(n.room)} kg.`:`Needs ${f0(n.exact)} kg but there is only room for ${f0(Math.max(0,n.room))} kg. Lighten the hardware.`;}$('propLab').textContent=`${S.prop} kg · ${f1(S.prop*.02)}M`;
     $('rbody').innerHTML=`
       ${bad.length?`<div class="issues"><p class="kicker" style="color:var(--bad)">Not ready for review</p><ul class="plain">${bad.map(x=>`<li><b>${x.name}.</b> ${x.fix}${howHtml(x,ck.indexOf(x))}</li>`).join('')}</ul></div>`:'<div class="issues ok"><p class="kicker" style="color:var(--good)">Ready for review</p><p>Every critical check passes.</p></div>'}
-      ${meter('Launch mass',d.wet,MASS_CAP,'kg')}${meter('Cost',d.cost,BUDGET,'M')}
+      ${meter('Launch mass',d.wet,cap(),'kg')}${meter('Cost',d.cost,BUDGET,'M')}
       ${meter('Power, all instruments on',d.bus+d.instP,d.genM,'W')}
       ${meter('Speed change needed / available',p.need,d.dv,'m/s',p.need>d.dv?'over':p.need*1.1>d.dv?'warn':'ok')}
       ${meter('Data per full pass',d.dataPass,d.store,'Gb storage')}
@@ -540,10 +558,10 @@ VIEW.review=()=>{
   <div class="panel"><p class="kicker">Cautions</p>${c.filter(x=>!x.crit).map(row).join('')}
     <div class="pair" id="pad3"><div><p class="kicker">${S.name}</p><div class="cvwrap"><canvas id="rvCraft"></canvas></div></div><div><p class="kicker">Folded inside the fairing</p><div class="cvwrap"><canvas id="rvRocket"></canvas></div></div></div>
     ${teach('Requirements, verification, margins and redundancy. Each requirement is listed with how it is checked, the way real review boards work.')}
-    <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button><button class="ghost" id="gmat">Export flight plan for GMAT</button></div></div></section>
+    <div class="row"><button class="ghost" id="toPlan">Change trajectory</button><button class="ghost" id="toDesign">Change spacecraft</button><button class="ghost" id="verT">How is each check verified?</button><button class="ghost" id="gmat">Export flight plan for GMAT</button></div></div></section>
   ${navRow(true,'cruise','Launch',fails>0,fails?'Launch is blocked':'')}`;
   if(!view3('rvCraft','craft',craftOpts(),{w:1,h:1,spin:.3,pitch:.38})|!view3('rvRocket','rocket',{payload:craftOpts(),cutaway:true},{w:1,h:1,spin:.4,pitch:.12}))$('pad3').remove();
-  bindHow(main);$('gmat').onclick=exportGmat;$('toPlan').onclick=()=>go('planning');$('toDesign').onclick=()=>go('design');
+  bindHow(main);$('verT').onclick=()=>main.classList.toggle('showver');$('gmat').onclick=exportGmat;$('toPlan').onclick=()=>go('planning');$('toDesign').onclick=()=>go('design');
   $('back').onclick=()=>go('design');$('next').onclick=launch;
 };
 
@@ -554,10 +572,10 @@ async function launch(){
   S.fl={dep:S.dep,tr:p.tr,vh:p.vh,vt:p.vt,vc:p.vc,vesc:p.vesc,pen:p.pen,need:p.need,light:p.light,orbit:S.orbit,prop0:S.prop,wet0:d.wet,cost:d.cost,
     isp:tier('engine').isp,auto:tier('computer').auto,genM:d.genM,bus:d.bus,store:d.store,down:d.down,wh:d.wh,rel:d.rel,on:d.on};
   S.mass=d.wet;S.health=d.rel*100;S.calib=S.sel.thermal===0?.92:1;
-  S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{}};
+  S.cr={tick:0,N:Math.round(p.tr.T/7),ev:{}};S.crew=crewNew();
   lg(`Launched ${dateStr(S.dep)} on a ${TR[S.transfer].n}, ${f0(d.wet)} kg, ${f1(d.cost)}M.`);
   const my=++RUN;
-  await Cine.play('launch',{count:true,min:11,lines:[{who:'reyes',text:`${S.name}, you are go for launch.`},{who:'park',text:'Four thousand two hundred and twelve bolts. I counted twice.'},{text:'The rocket has one job: throw the spacecraft onto its path to Mars.'}]});
+  await Cine.play('launch',{count:true,min:11,lines:[{who:'reyes',text:`${S.name}, you are go for launch.`},{who:'park',text:'Four thousand two hundred and twelve bolts. I counted twice.'},{text:`From ${site().n}, Earth’s spin gives the rocket ${f0(spin(site()))} m/s for free.`}]});
   if(my!==RUN)return;
   await Cine.play('depart',{lines:[{text:`${S.name} separates from the upper stage and unfolds its solar arrays.`},{who:'lind',text:`${f0(p.tr.T)} days to Mars. Kestrel made this trip too. Getting there was never the hard part.`},{text:'From here on, every change of speed comes out of your own propellant.'}]});
   if(my!==RUN)return;
@@ -566,12 +584,63 @@ async function launch(){
 function massFor(dv){return S.mass*(1-Math.exp(-dv/(S.fl.isp*G0)));}
 function burn(dv){const m=Math.min(S.prop,massFor(dv));S.prop-=m;S.mass-=m;return m;}
 
+/* ============ crew ============
+   Three people ride in the spacecraft. Food, water and oxygen are used automatically every week; the player
+   never feeds anyone by hand. The player sets two things (meals and work schedule) and answers crew events.
+   Needs move through four levels: normal, warning, critical, emergency. Neglect one for long enough and the
+   mission is lost. Rates are tuned for the game, not real consumption figures. */
+const CREW0=[['Aiyana Brooks','Commander','AB'],['Kenji Mori','Flight surgeon','KM'],['Lucía Ferrer','Engineer','LF']];
+const CLV=[['go','Normal'],['warn','Warning'],['nogo','Critical'],['nogo','Emergency']];
+function crewNew(){return {food:100,water:100,o2:100,med:2,rations:1,sched:1,recycler:true,lvl:0,a:CREW0.map(c=>({n:c[0],role:c[1],i:c[2],health:100,energy:85,stress:15,rad:0}))};}
+const crewAvg=k=>S.crew?S.crew.a.reduce((s,x)=>s+x[k],0)/S.crew.a.length:100;
+function crewLevel(){const c=S.crew;if(!c)return 0;const low=Math.min(c.food,c.water,c.o2),h=Math.min(...c.a.map(x=>x.health)),e=Math.min(...c.a.map(x=>x.energy)),st=Math.max(...c.a.map(x=>x.stress));
+  return low<10||h<30?3:low<25||h<50||e<20||st>85?2:low<40||h<70||e<40||st>65?1:0;}
+/* how much science and upkeep the crew gets done */
+const crewWork=()=>S.crew?[.85,1,1.15][S.crew.sched]*(crewAvg('energy')<30?.8:1)*(crewAvg('health')<50?.8:1):1;
+function crewTick(w=1){const c=S.crew;if(!c||S.dead)return;
+  c.food=Math.max(0,c.food-1.55*w*(c.rations?1:.7));c.water=Math.max(0,c.water-1.3*w*(c.recycler?1:2.4));c.o2=Math.max(0,c.o2-1.2*w);
+  for(const a of c.a){
+    a.energy=clamp(a.energy+([5,0,-5][c.sched]+(80-a.energy)*.08)*w,0,100);
+    a.stress=clamp(a.stress+([-1.5,.4,2.5][c.sched]+(c.rations?0:1))*w,0,100);a.rad=clamp(a.rad+.5*w,0,100);
+    let d=0;if(c.food<=0)d+=9;else if(c.food<20)d+=2;if(c.water<=0)d+=14;else if(c.water<20)d+=3;if(c.o2<=0)d+=40;else if(c.o2<20)d+=5;
+    if(!c.rations)d+=.5;if(a.energy<25)d+=2;if(a.stress>80)d+=1.5;if(a.rad>60)d+=1.5;
+    a.health=clamp(a.health+(d?-d:.8)*w,0,100);}
+  const lv=crewLevel();if(lv>c.lvl){toast(['','Crew warning: a need is running low.','Crew critical: health is suffering.','Crew emergency: act now.'][lv]);if(lv>=2)SFX.alarm();}c.lvl=lv;
+  if(c.a.some(a=>a.health<=0)){S.dead=true;S.health=Math.min(S.health,20);S.fail.push('Crew lost. Their needs were neglected for too long.');lg('Crew lost.');}}
+function crewPanel(){const c=S.crew;if(!c)return '';const lv=CLV[crewLevel()],bar=(v,inv)=>`<i class="cb${(inv?v>85:v<25)?' b':(inv?v>65:v<40)?' w':''}"><b style="width:${clamp(v,0,100)}%"></b></i>`;
+  const seg=(key,names)=>names.map((n,i)=>`<button class="ghost" data-crew="${key}" data-v="${i}" aria-pressed="${c[key]===i}">${n}</button>`).join('');
+  return `<div class="panel crew" id="crew"><div class="row between"><p class="kicker">Crew</p><span class="pill ${lv[0]}">${lv[1]}</span></div>
+    <div class="sup">${[['Food',c.food],['Water',c.water],['Oxygen',c.o2]].map(x=>`<div><span>${x[0]}</span>${bar(x[1])}<b class="num">${f0(x[1])}%</b></div>`).join('')}</div>
+    <div class="astros">${c.a.map(a=>`<div class="astro"><span class="av" aria-hidden="true">${a.i}</span><div class="who2"><b>${a.n}</b><span>${a.role}</span></div>
+      <div class="mini"><label>Health ${bar(a.health)}</label><label>Energy ${bar(a.energy)}</label><label>Stress ${bar(a.stress,1)}</label><label>Radiation ${bar(a.rad,1)}</label></div></div>`).join('')}</div>
+    <div class="seg2"><span class="kicker">Meals</span>${seg('rations',['Reduced','Full'])}</div>
+    <div class="seg2"><span class="kicker">Work</span>${seg('sched',['Rest','Balanced','Push'])}</div>
+    <p class="dim" style="font-size:.8rem">${['Rest: the crew recovers, but less gets done.','Balanced: steady.','Push: more science and upkeep, but the crew tires fast.'][c.sched]}${c.rations?'':' Reduced meals stretch the food and wear people down.'}${c.recycler?'':' <b style="color:var(--bad)">Water recycler is down.</b>'}</p></div>`;}
+function drawCrew(){const el=$('crew');if(!el||!S.crew)return;el.outerHTML=crewPanel();bindCrew();chrome();}
+function bindCrew(){const el=$('crew');if(el)el.querySelectorAll('[data-crew]').forEach(b=>b.onclick=()=>{S.crew[b.dataset.crew]=+b.dataset.v;drawCrew();});}
+async function evWater(){const c=S.crew,N='Water recycler failure';c.recycler=false;drawCrew();
+  const r=await ask({kicker:'Crew event · life support',cls:'alert',title:N,body:'<p>The unit that turns waste water back into drinking water has stopped. Without it, water runs out more than twice as fast.</p>',choices:[
+    {label:'Repair it now',sub:'A very long shift. The crew is tired afterwards, but the recycler works.',value:'fix'},
+    {label:'Fit the spare',sub:S.red?'You carried redundancy. A quick swap.':'Needs the redundancy option, which you did not carry.',value:'spare',disabled:!S.red},
+    {label:'Ration water instead',sub:'No repair. Water keeps draining fast and stress rises.',value:'ration'}]});
+  let msg;if(r==='fix'){c.recycler=true;c.a.forEach(a=>{a.energy=clamp(a.energy-22,0,100);a.stress=clamp(a.stress+6,0,100);});msg='Fixed after a 19-hour shift. The crew is exhausted. Give them rest.';pt(N,8,10);}
+  else if(r==='spare'){c.recycler=true;msg='The spare went in within the hour.';pt(N,10,10);}
+  else{c.a.forEach(a=>a.stress=clamp(a.stress+12,0,100));msg='Water is rationed. Watch the gauge: at this rate it will not last the mission.';pt(N,3,10);}
+  lg(N+': '+msg);await tell('Outcome','Life support',`<p>${msg}</p>`);drawCrew();}
+async function evMed(){const c=S.crew,a=c.a[Math.random()*c.a.length|0],N='Medical emergency';
+  const r=await ask({kicker:'Crew event · medical',cls:'alert',title:N,body:`<p>${a.n} has a high fever and cannot work.</p>`,choices:[
+    {label:'Use a medical kit',sub:`${c.med} left on board. A fast recovery.`,value:'kit',disabled:c.med<1},
+    {label:'Bed rest only',sub:'Saves the kit. A slow, rough recovery.',value:'rest'}]});
+  let msg;if(r==='kit'){c.med--;a.health=clamp(a.health-6,0,100);msg=`${a.n} is back on shift in two days.`;pt(N,10,10);}
+  else{a.health=clamp(a.health-30,0,100);a.energy=clamp(a.energy-25,0,100);c.a.forEach(x=>x.stress=clamp(x.stress+8,0,100));msg=`${a.n} recovers slowly. The others cover the work and worry.`;pt(N,5,10);}
+  lg(N+': '+msg);await tell('Outcome','Medical',`<p>${msg}</p>`);drawCrew();}
+
 /* ---------- cruise ---------- */
 VIEW.cruise=()=>{
   const f=S.fl;
-  main.innerHTML=head(6,'Interplanetary cruise','Spacecraft Operations Center',`${S.name} flies itself most of the way. Each tick of the clock is one week. You watch its health and step in when something goes wrong.`)+coach(['Watch the map and the telemetry. There is nothing to press until an alert appears.','When an alert appears, read it and choose. There is no timer unless it says so.','Three major problems strike during cruise: a solar storm, a course error and a rock on a collision path. <b>Fail one and the mission is lost.</b>'])+`
+  main.innerHTML=head(6,'Interplanetary cruise','Spacecraft Operations Center',`Each tick is one week. Watch the gauges, look after the crew, and act when an alert appears.`)+coach(['Watch the map and the telemetry. There is nothing to press until an alert appears.','When an alert appears, read it and choose. There is no timer unless it says so.','Three major problems will strike. <b>Fail one and the mission is lost.</b>'])+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="sys"></canvas></div><div id="prog"></div></div>
-  <div class="grid"><div class="panel" id="livep"><p class="kicker">${S.name} · live view</p><div class="cvwrap"><canvas id="live"></canvas></div></div><div class="panel" id="tele"></div><div class="panel"><p class="kicker">Flight log</p><div class="log" id="clog"></div></div></div></section>`;
+  <div class="grid">${crewPanel()}<div class="panel" id="livep"><p class="kicker">${S.name} · live view</p><div class="cvwrap"><canvas id="live"></canvas></div></div><div class="panel" id="tele"></div><div class="panel"><p class="kicker">Flight log</p><div class="log" id="clog"></div></div></div></section>`;
   if(!view3('live','craft',craftOpts(),{w:16,h:9,spin:.18,yaw:2.4,pitch:.3}))$('livep').remove();
   const c=cv('sys',460,460);
   const upd=()=>{const t=S.cr.tick*7,s=posAt(f.tr,Math.min(t,f.tr.T));
@@ -580,21 +649,22 @@ VIEW.cruise=()=>{
     S.cr.v=s.v*1000;
     $('prog').innerHTML=meter(`Day ${Math.min(t,Math.round(f.tr.T))} of ${f0(f.tr.T)}`,Math.min(t,f.tr.T),f.tr.T,'days','ok');
     $('tele').innerHTML=`<p class="kicker">Telemetry</p><div class="tw"><table>
-      <tr><th>Speed around the Sun</th><td class="num">${f1(s.v)} km/s</td></tr><tr><th>Distance from the Sun</th><td class="num">${f2(s.r)} AU</td></tr>
-      <tr><th>Sunlight on the arrays</th><td class="num">${f0(100/(s.r*s.r))}%</td></tr><tr><th>Array output</th><td class="num">${f0(f.genM*RM*RM/(s.r*s.r)*S.degr)} W</td></tr>
-      <tr><th>Signal delay to Earth</th><td class="num">${f1(dist/C_KMS/60)} min</td></tr><tr><th>Propellant</th><td class="num">${f0(S.prop)} kg</td></tr>
-      <tr><th>Spacecraft health</th><td class="num">${f1(S.health)}%</td></tr></table></div>`;
+      <tr><th>Distance from the Sun</th><td class="num">${f2(s.r)} AU</td></tr><tr><th>Signal delay to Earth</th><td class="num">${f1(dist/C_KMS/60)} min</td></tr>
+      <tr><th>Propellant</th><td class="num">${f0(S.prop)} kg</td></tr><tr><th>Spacecraft health</th><td class="num">${f1(S.health)}%</td></tr></table></div>`;
     $('clog').innerHTML=S.log.slice().reverse().map(l=>`<div><b>›</b> ${l}</div>`).join('');chrome();};
-  upd();
+  upd();bindCrew();
   (async()=>{const my=RUN,N=S.cr.N;
     while(S.cr.tick<N){
       await sleep(850);if(my!==RUN)return;
-      S.cr.tick++;S.health-=.12;upd();
+      S.cr.tick++;S.health-=S.crew?[.2,.12,.05][S.crew.sched]:.12;crewTick(1);drawCrew();upd();
+      if(S.dead)return go('debrief');
       const fr=S.cr.tick/N,ev=S.cr.ev;
       if(!ev.comm&&fr>=.18){ev.comm=1;await evComm();}
       else if(!ev.storm&&fr>=.34){ev.storm=1;await lethal('Solar storm',evStorm,'The proton storm burned through the flight computer’s memory. The spacecraft stopped answering.');}
+      else if(S.crew&&!ev.water&&fr>=.42){ev.water=1;await evWater();}
       else if(!ev.main&&fr>=.5){ev.main=1;let q;const ok=await lethal('Off course',async()=>{q=await evOffCourse();return q.km<90000;},'The correction left the spacecraft more than 90,000 km wide of Mars, with no propellant plan that could bring it back.');if(my!==RUN)return;if(ok)await auraScene(q);}
       else if(!ev.rock&&fr>=.66){ev.rock=1;await lethal('Rock strike',evRock,'The rock went through the spacecraft at 12 kilometres per second.');}
+      else if(S.crew&&!ev.med&&fr>=.74){ev.med=1;await evMed();}
       else if(!ev.power&&fr>=.82){ev.power=1;await evPower();}
       else await rollRandom(S.cr.v);
       if(my!==RUN)return;upd();
@@ -715,7 +785,7 @@ async function explode(demo){
 VIEW.moi=()=>{
   const f=S.fl,my=RUN;
   if(!S.ckpt){const s=JSON.stringify(S);S.ckpt=s;}
-  main.innerHTML=head(7,'Mars orbit insertion','Spacecraft Operations Center',`${S.name} is moving too fast for Mars to hold. Fire the engine near closest approach to drop below ${T('escape','escape speed')}. Burn too little and you fly straight past. Mars is ${f1(f.light)} light-minutes away, so this is really the sequence the spacecraft will fly alone.`)+coach(['Press <b>Start the approach</b> when you are ready.','Wait until the spacecraft enters the green zone.','<b>Hold</b> the engine button until the white speed marker sits inside the green band, then let go.'])+`
+  main.innerHTML=head(7,'Mars orbit insertion','Spacecraft Operations Center',`${S.name} is too fast for Mars to hold. Fire the engine near closest approach to drop below ${T('escape','escape speed')}. Too little and you fly past.`)+coach(['Press <b>Start the approach</b> when you are ready.','Wait until the spacecraft enters the green zone.','<b>Hold</b> the engine button until the white speed marker sits inside the green band, then let go.'])+`
   <section class="split"><div class="panel"><div class="cvwrap"><canvas id="moiC"></canvas></div></div>
   <div class="panel"><p class="kicker">Burn control</p><div id="moiOut"></div>
     <button class="btn" id="fire" style="touch-action:none;user-select:none">Start the approach</button><p class="dim" style="font-size:.85rem">Mouse, touch or the space bar. Burning far from closest approach wastes almost half the thrust.</p>
@@ -797,12 +867,13 @@ VIEW.ops=()=>{
   const f=S.fl,o=S.ops,avail=f.genM*S.degr,act=f.on.filter(k=>o.on[k]&&o.st[k]!=='off');
   const load=f.bus+act.reduce((s,k)=>s+INST[k].power,0),deficit=load-avail,canPower=deficit<=0||o.bat>=deficit;
   const dataNow=act.reduce((s,k)=>s+INST[k].data,0),u=used(),R=REG[o.region];
-  main.innerHTML=head(7,'Science operations','Mars orbit',`You have ${o.N} passes over Mars. On each one, choose a region and switch instruments on. Repeat looks at the same target are worth less each time.`)+(o.pass===1?say('lind','Three questions and a handful of passes. Kestrel’s echo came from under the north polar cap. I am not telling you where to point. I am only mentioning it.'):'')+qTrack()+`
+  main.innerHTML=head(7,'Science operations','Mars orbit',`You have ${o.N} passes. Each time, pick a region and switch instruments on. Repeat looks are worth less.`)+(o.pass===1?say('lind','Three questions and a handful of passes. Kestrel’s echo came from under the north polar cap. I am not telling you where to point. I am only mentioning it.'):'')+qTrack()+`
   <section class="split"><div class="grid"><div class="panel"><div class="cvwrap"><canvas id="map"></canvas>
       ${Object.keys(REG).map(k=>`<button class="hot" data-r="${k}" aria-pressed="${o.region===k}" style="left:${(REG[k].lon+180)/3.6}%;top:${(90-REG[k].lat)/1.8+(k==='polar'?5:0)}%">${REG[k].n}</button>`).join('')}</div>
       <h3>${R.n}</h3><p>${R.d} <span class="dim">Look for: ${R.look}</span></p>
       <div class="tw"><table><tr><th>Instrument</th><th>Science fit here</th><th class="num">Passes so far</th><th class="num">Next is worth</th></tr>
       ${f.on.map(k=>`<tr><td>${INST[k].name}${o.st[k]!=='ok'?` <span class="pill ${o.st[k]==='off'?'nogo':'warn'}">${o.st[k]==='off'?'off':'degraded'}</span>`:''}</td><td><span class="pips">${[1,2,3,4,5].map(i=>`<i class="${R.aff[k]*5>=i-.01?'on':''}"></i>`).join('')}</span></td><td class="num">${o.cnt[o.region+k]||0}</td><td class="num">${o.st[k]==='off'?'0.0':f1(obsValue(o.region,k))}</td></tr>`).join('')}</table></div></div>
+    ${crewPanel()}
     <div class="panel"><p class="kicker">Operations log</p><div class="log">${o.lines.slice().reverse().map(l=>`<div><b>›</b> ${l}</div>`).join('')||'<div>No passes flown yet.</div>'}</div></div></div>
   <div class="panel sticky"><div class="row between"><p class="kicker">Pass ${o.pass} of ${o.N}</p><span class="pill info">Science delivered ${f1(o.delivered)}</span></div>
     <div class="choices">${f.on.map(k=>`<button class="opt" data-k="${k}" aria-pressed="${!!o.on[k]&&o.st[k]!=='off'}" ${o.st[k]==='off'?'disabled':''}><b>${INST[k].name}</b><span class="s">${INST[k].power} W · ${INST[k].data} Gb · ${INST[k].out}</span></button>`).join('')}</div>
@@ -811,18 +882,18 @@ VIEW.ops=()=>{
     <p class="dim num" style="font-size:.72rem">Downlink ${f.down} Gb per pass · order: ${o.mode==='value'?'most valuable first':'oldest first'}</p>
     <p class="dim" style="font-size:.86rem">${!canPower?'Not enough power or battery for this selection. Turn an instrument off.':deficit>0?`Draws ${f0(deficit)} Wh from the battery.`:u+dataNow>f.store?'Storage will overflow. Observations that do not fit are lost.':'Ready.'}</p>
     <button class="btn" id="exec" ${canPower?'':'disabled'}>${act.length?'Fly this pass':'Downlink only'}</button></div></section>`;
-  drawMarsMap(cv('map',640,320));
+  drawMarsMap(cv('map',640,320));bindCrew();
   main.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{o.region=b.dataset.r;VIEW.ops();});
   main.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{o.on[b.dataset.k]=!o.on[b.dataset.k];VIEW.ops();});
   $('exec').onclick=async()=>{const my=RUN;
     if(deficit>0)o.bat-=deficit;else o.bat=Math.min(f.wh,o.bat-deficit*.6);
     let got=0,lost=0,space=f.store-used();
-    for(const k of act){const val=obsValue(o.region,k),size=INST[k].data;
+    for(const k of act){const val=obsValue(o.region,k)*crewWork(),size=INST[k].data;
       if(size<=space+1e-9){o.store.push({r:o.region,k,size,left:size,val});space-=size;o.collected+=val;got+=val;o.cnt[o.region+k]=(o.cnt[o.region+k]||0)+1;}
       else{lost+=val;o.lost+=val;}}
     const b4=answered(),sent=downlink(f.down),af=answered();
     o.lines.push(`Pass ${o.pass}, ${R.n}: recorded ${f1(got)} science${lost?`, lost ${f1(lost)} to full storage`:''}, sent ${f1(sent)} Gb.`);
-    o.pass++;S.health-=.3;
+    o.pass++;S.health-=.3;crewTick(1.5);
     await story(b4,af);if(my!==RUN)return;
     if(o.pass===4&&!o.ev.data){o.ev.data=1;await evData();}
     else if(o.pass===6&&!o.ev.opp){o.ev.opp=1;await evOpp();}
@@ -901,6 +972,7 @@ function evStorm(){return new Promise(res=>{
     <div id="mgT"></div><p class="kicker">Choose which way to turn the spacecraft</p>
     <div class="choices">${opts.map((x,i)=>`<button class="choice" data-i="${i}"><b>${x.n}</b><span>${x.d} Shielding in the way: <b class="num" style="color:var(--amber)">${x.s} g/cm²</b></span></button>`).join('')}</div>`);
   let done=false;const fin=async i=>{if(done)return;done=true;stop();o.remove();const x=opts[i],dose=x?D0*Math.pow(.5,x.s/5):D0,ok=dose<=25.001;
+    if(S.crew)S.crew.a.forEach(a=>a.rad=clamp(a.rad+(ok?(x&&x.cost?2:7):30),0,100));
     if(ok){if(x.cost){S.health-=5;pt('Solar storm',9,15);}else pt('Solar storm',x.s<=need+2?15:12,15);}
     const msg=!x?'You ran out of time. The storm hit an unshielded spacecraft.':ok?(x.cost?`Dose ${f1(dose)} rad. The computer is safe, but the arrays sat in shadow and the battery ran deep. More shelter than you needed.`:`Dose ${f1(dose)} rad, just under the limit, with the arrays still in sunlight. The right shelter.`):`Dose ${f0(dose)} rad. That shelter needed ${need} g/cm² and had ${x.s}.`;
     lg('Solar storm: '+msg);await tell('Outcome',ok?'Storm weathered':'Not enough shielding',`<p>${msg}</p>${teach('Space radiation, shielding and half-value thickness, exponential decay.')}`);res(ok);};
@@ -1006,25 +1078,26 @@ function score(){
   const E=Object.values(eff).reduce((s,x)=>s+x,0)/4*100;
   const pg=S.P.reduce((s,x)=>s+x.got,0),pm=S.P.reduce((s,x)=>s+x.max,0);
   const P=clamp((pm?pg/pm*100:0)-S.retries*10,0,100),L=clamp(S.health,0,100);
-  const total_=.35*R+.25*O+.2*E+.1*P+.1*L;
+  const C=S.crew?(S.crew.a.some(a=>a.health<=0)?0:crewAvg('health')):100;
+  const total_=.30*R+.20*O+.15*E+.15*C+.1*P+.1*L;
   if(S.orbitOK&&o.delivered<=0&&!S.fail.includes('No science data reached Earth'))S.fail.push('No science data reached Earth');
   const cls=S.fail.length?['fail','Mission failed']:total_>=85?['good','Outstanding mission']:total_>=70?['good','Mission success']:total_>=50?['mid','Partial success']:['mid','Marginal mission'];
-  return {R,O,E,P,L,S:total_,obj,eff,cls,sci,any};
+  return {R,O,E,P,L,C,S:total_,obj,eff,cls,sci,any};
 }
 VIEW.debrief=()=>{
   const sc=score(),f=S.fl,o=S.ops;
   try{const b=JSON.parse(localStorage.getItem('mcb-rf-best'));if(!b||sc.S>b.s)localStorage.setItem('mcb-rf-best',JSON.stringify({s:Math.round(sc.S),c:sc.cls[1]}));}catch(e){}
   const echo=o&&(o.sci.polarradar||0)>0;
   const epi=S.fail.length?say('reyes','We lost it. Read the flight log, find the decision that did it, and fly again. Every real mission team learns this way.'):echo?say('lind',`Kestrel’s echo was the floor of the polar ice: two kilometres of frozen water, layer on layer. It is going in the textbooks, with ${S.name}’s name on it.`):say('lind','Good data, and real answers. But Kestrel’s echo is still down there under the pole, unexplained. Next time, take the radar north.');
-  const cats=[['R','Scientific return',35,sc.R,'Science value that reached Earth, against a strong mission’s 185'],['O','Objective completion',25,sc.O,'Six primary objectives'],
-    ['E','Resource efficiency',20,sc.E,Object.entries(sc.eff).map(([k,v])=>`${k} ${f0(v*100)}`).join(' · ')],['P','Operational performance',10,sc.P,`${S.P.length} decisions${S.retries?`, ${S.retries} insertion retr${S.retries>1?'ies':'y'}`:''}`],['L','Reliability',10,sc.L,'Spacecraft health at end of mission']];
+  const cats=[['R','Scientific return',30,sc.R,'Science value that reached Earth, against a strong mission’s 185'],['O','Objective completion',20,sc.O,'Six primary objectives'],['C','Crew',15,sc.C,'Average crew health at the end'],
+    ['E','Resource efficiency',15,sc.E,Object.entries(sc.eff).map(([k,v])=>`${k} ${f0(v*100)}`).join(' · ')],['P','Operational performance',10,sc.P,`${S.P.length} decisions${S.retries?`, ${S.retries} insertion retr${S.retries>1?'ies':'y'}`:''}`],['L','Reliability',10,sc.L,'Spacecraft health at end of mission']];
   const cmp=(title,k,region,sim,ref,cvId,quiz)=>`<div class="panel"><p class="kicker">${title}</p><div class="cvwrap"><canvas id="${cvId}"></canvas></div>
     <div class="two"><div class="sim"><p class="kicker" style="color:var(--rust)">Your simulated result</p><p style="font-size:.9rem">${sc.any(k)?sim:`No ${INST[k].name.toLowerCase()} data reached Earth, so this question stays open for your mission.`}</p></div>
     <div class="ref"><p class="kicker" style="color:var(--ice)">What NASA observed</p><p style="font-size:.9rem">${ref}</p></div></div>${quiz||''}</div>`;
   main.innerHTML=head(8,'Mission debrief','ASEA Science Operations Center',S.fail.length?'The mission did not end the way it was planned. Here is what happened, and what the data would have been compared against.':'The data is home. Here is how the mission scored, and how your simulated results line up with what real orbiters found.')+`
   <section class="panel"><div class="score"><div class="S num">${f0(sc.S)}</div><div class="grid" style="gap:8px">
     <span class="banner ${sc.cls[0]}">${sc.cls[1]}</span>
-    <p class="num" style="font-size:.78rem">S = 0.35×${f0(sc.R)} + 0.25×${f0(sc.O)} + 0.20×${f0(sc.E)} + 0.10×${f0(sc.P)} + 0.10×${f0(sc.L)} = ${f1(sc.S)}</p>
+    <p class="num" style="font-size:.78rem">S = 0.30×${f0(sc.R)} + 0.20×${f0(sc.O)} + 0.15×${f0(sc.E)} + 0.15×${f0(sc.C)} + 0.10×${f0(sc.P)} + 0.10×${f0(sc.L)} = ${f1(sc.S)}</p>
     ${S.fail.length?`<div><p class="kicker" style="color:var(--bad)">Hard failures, reported separately from the score</p><ul class="plain">${S.fail.map(x=>`<li><span class="pill nogo">Failure</span> ${x}</li>`).join('')}</ul></div>`:'<p class="dim">No hard failures.</p>'}
     <p class="mono" style="color:var(--amber)">AURA ${f0(S.aura)}</p></div></div></section>
   ${epi}
@@ -1124,7 +1197,7 @@ ${sc}.CoordinateSystem = EarthMJ2000Eq;
 ${sc}.DisplayStateType = Keplerian;
 ${sc}.SMA = ${f2(r0)};
 ${sc}.ECC = 0.0001;
-${sc}.INC = 28.5;
+${sc}.INC = ${site().inc};
 ${sc}.RAAN = 0;
 ${sc}.AOP = 0;
 ${sc}.TA = 0;
@@ -1206,7 +1279,18 @@ const SFX=(()=>{let ac=null,on=false,hum=null;try{on=localStorage.getItem('mcb-s
     for(const f of[55,82.7,110.4]){const o=a.createOscillator();o.type='sawtooth';o.frequency.value=f;o.connect(lp);o.start();}hum.gain.setTargetAtTime(.022,a.currentTime,.8);}catch(e){}}
   return {blip,ambient,get on(){return on},set(v){on=v;try{localStorage.setItem('mcb-sfx',v?'1':'0');}catch(e){}ambient();},
     alarm(){blip(440,.22,.05,'square');setTimeout(()=>blip(330,.3,.05,'square'),240);}};})();
-{const b=$('sfxBtn');if(b){const paint=()=>{b.textContent=SFX.on?'Sound on':'Sound off';b.setAttribute('aria-pressed',SFX.on);};paint();b.onclick=()=>{SFX.set(!SFX.on);paint();SFX.blip(1200,.08);};}
+/* audio settings: sound effects and narration are separate, and both are remembered */
+function audioPanel(){const o=document.createElement('div');o.className='overlay';
+  o.innerHTML=`<div class="modal" role="dialog" aria-modal="true" style="max-width:460px"><p class="kicker">Settings</p><h3>Audio</h3>
+    <label class="row" style="gap:8px"><input type="checkbox" id="auS" ${SFX.on?'checked':''}> <span><b>Console sounds.</b> Hum, key clicks and alarms.</span></label>
+    <label class="row" style="gap:8px"><input type="checkbox" id="auV" ${Voice.on?'checked':''} ${Voice.available?'':'disabled'}> <span><b>Narrator.</b> Reads cutscenes and briefings aloud${Voice.available?'':' (not available in this browser)'}. Subtitles always stay on.</span></label>
+    <label class="kicker" for="auVol">Narrator volume</label><input type="range" id="auVol" min="0" max="1" step="0.05" value="${Voice.vol}">
+    <div class="row"><button class="ghost" id="auT">Test the narrator</button><button class="btn" id="auX">Done</button></div></div>`;
+  document.body.appendChild(o);const q=s=>o.querySelector(s);
+  q('#auS').onchange=e=>{SFX.set(e.target.checked);};q('#auV').onchange=e=>{Voice.set(e.target.checked);};q('#auVol').oninput=e=>Voice.setVol(e.target.value);
+  q('#auT').onclick=()=>{const was=Voice.on;Voice.set(true);Voice.say('Six years ago, Kestrel reached Mars. It never called home again.','narrator');if(!was){q('#auV').checked=true;}};
+  q('#auX').onclick=()=>o.remove();}
+{const b=$('sfxBtn');if(b){b.textContent='Audio';b.removeAttribute('aria-pressed');b.onclick=audioPanel;}
   addEventListener('click',e=>{const t=e.target.closest&&e.target.closest('button');if(!t||t.id==='sfxBtn')return;SFX.ambient();SFX.blip(t.classList.contains('btn')?660:t.classList.contains('choice')?780:980,t.classList.contains('btn')?.09:.045);},true);
   const ck=$('clock');if(ck){const tk=()=>{ck.textContent='UTC '+new Date().toISOString().slice(11,19);};tk();setInterval(tk,1000);}}
 
@@ -1219,6 +1303,6 @@ function start(data){
 /* back-to-top button: appears once the page has been scrolled a screen down */
 {const tb=$('topBtn');if(tb){const sh=()=>tb.classList.toggle('show',scrollY>innerHeight*.6);addEventListener('scroll',sh,{passive:true});sh();
   tb.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}}
-window.__game={get S(){return S},DEMO,go,plan,design,checks,bestDep,gmatScript};
+window.__game={SITES,crewTick,get S(){return S},DEMO,go,plan,design,checks,bestDep,gmatScript};
 window.claude?.hot?.snapshot?.(()=>S);
 if(window.claude?.hot?.ready)window.claude.hot.ready(()=>start(window.claude.hot.data??{}));else start({});

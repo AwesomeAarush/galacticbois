@@ -135,6 +135,13 @@ const Models=(()=>{
   function bell(throat,exit,len){const p=[];for(let i=0;i<=10;i++){const t=i/10;p.push(new T3.Vector2(mix(throat,exit,Math.sqrt(t)),-t*len));}return new T3.LatheGeometry(p,28);}
   function sprite(color,blend=true){if(!cache.glow)cache.glow=new T3.CanvasTexture(glowCanvas());return new T3.Sprite(new T3.SpriteMaterial({map:cache.glow,color,transparent:true,depthWrite:false,blending:blend?T3.AdditiveBlending:T3.NormalBlending}));}
 
+  /* an engine plume: a soft glow at the nozzle plus a cone that widens and fades, pointing along -y */
+  function plume(color,len,r){const g=new T3.Group(),sp=sprite(color);sp.scale.set(r*3.4,r*3.4,1);g.add(sp);
+    if(!cache.plume){const c=cvs(8,128),x=c.getContext('2d'),gr=x.createLinearGradient(0,0,0,128);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.2,'rgba(255,255,255,.6)');gr.addColorStop(.6,'rgba(255,255,255,.18)');gr.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gr;x.fillRect(0,0,8,128);cache.plume=new T3.CanvasTexture(c);}
+    for(const [k,o] of [[1,.7],[.45,.9]]){const cone=new T3.Mesh(new T3.ConeGeometry(r*k,len*(k<1?.7:1),24,1,true),new T3.MeshBasicMaterial({map:cache.plume,color,transparent:true,opacity:o,blending:T3.AdditiveBlending,side:T3.DoubleSide,depthWrite:false}));
+      cone.position.y=-len*(k<1?.7:1)/2;g.add(cone);}
+    return g;}
+
   /* ---------- instruments (each points along -y, "down" at the planet) ---------- */
   function instPart(k){
     const g=new T3.Group(),band=(r,y)=>{const b=M(new T3.TorusGeometry(r,.014,8,28),'band:'+k,0,y,0);b.rotation.x=Math.PI/2;return b;};
@@ -232,7 +239,7 @@ const Models=(()=>{
     /* the chosen instruments ride under the main bridge */
     const parts={},list=o.inst||['cam','spec','mcs','radar'],slot={cam:-.75,spec:-.3,mcs:.15,radar:.6};
     list.forEach(k=>{const p=instPart(k);p.scale.setScalar(.75);p.position.set(0,-.28,slot[k]);if(stow&&k==='radar')p.scale.set(.2,.75,.75);if(o.grey)p.traverse(m=>{if(m.isMesh)m.material=dullMat(m.material);});g.add(p);parts[k]=p;});
-    const nl=[.3,.75,1][eng]*GLB.k,fl=sprite(0xffb060);fl.position.z=GLB.aft-nl-.35;fl.scale.set(1.3,1.3,1);fl.visible=false;g.add(fl);
+    const nl=[.3,.75,1][eng]*GLB.k,fl=plume(0xbcd6ff,3.2,.55);fl.rotation.x=Math.PI/2;fl.position.z=GLB.aft-nl-.1;fl.visible=false;g.add(fl);
     const lamp=new T3.Mesh(new T3.SphereGeometry(.09,10,8),new T3.MeshBasicMaterial({color:0xff4030}));lamp.position.set(0,.75,-.55);lamp.visible=!!o.grey;g.add(lamp);
     /* deploy(t): 0 = arrays and radiator arms folded against the hull, 1 = fully open */
     const fold=['sol_a','sol_f','rad_a','rad_f'].filter(k=>grp[k]&&grp[k].visible),base=fold.map(k=>grp[k].scale.y);
@@ -308,7 +315,7 @@ const Models=(()=>{
       b.add(M(bell(.035,.085,.14),'nozzle',0,.06,0));b.position.x=d*.325;g.add(b);srb.push(b);}
     let pay=null;if(o.payload){pay=craft(Object.assign({},o.payload,{stowed:true}));const fit=()=>{const L=pay.userData.len||3.4;pay.scale.setScalar(1.95/L*(pay.userData.glb?1:.5));};fit();pay.userData.onSwap=fit;
       pay.rotation.x=-Math.PI/2;pay.position.y=FY+1.08;g.add(pay);}
-    const fl=sprite(0xffa040);fl.position.y=-.6;g.add(fl);g.userData={flame:fl,srb,fair:[fa,fb],core,up,pay,h:FY+2.3};return g;}
+    const fl=plume(0xffb878,1.5,.26);fl.position.y=-.6;g.add(fl);g.userData={flame:fl,srb,fair:[fa,fb],core,up,pay,h:FY+2.3};return g;}
 
   /* ---------- planets, with a thin atmosphere that glows on the sunlit edge ---------- */
   function planet(name){
