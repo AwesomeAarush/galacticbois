@@ -7,13 +7,15 @@ const BASE=Date.UTC(2028,5,1), DAY=864e5, HORIZON=1560; /* about two Mars launch
 const MASS_CAP=1200, BUDGET=180;
 /* Every price in the game is in millions of dollars, so 180 is shown as $180M. */
 const money=m=>'$'+(Number.isInteger(m)?m.toLocaleString('en-US'):m.toFixed(1))+'M';
-/* Launch sites. Earth spins fastest at the equator (465 m/s x cos latitude), and a rocket launched east keeps that
-   speed for free, so a site nearer the equator lifts more. A site far from the equator also puts the spacecraft in
-   an orbit tilted well away from the plane of the planets, and straightening that out costs propellant.
-   The real spin speeds are shown; the mass, cost and tilt numbers are tuned for the game. */
-const SITES={kourou:{n:'Kourou',where:'French Guiana',lat:5.2,inc:23.4,cap:1250,cost:9,dv:0,tint:0x4f6a4a,d:'Almost on the equator.'},
-  canaveral:{n:'Cape Canaveral',where:'Florida, USA',lat:28.5,inc:28.5,cap:1200,cost:0,dv:20,tint:0x5a5a5a,d:'The standard choice.'},
-  baikonur:{n:'Baikonur',where:'Kazakhstan',lat:45.6,inc:51.6,cap:1120,cost:-7,dv:90,tint:0x8a7a5a,d:'Cheap, but far north.'}};
+/* Launch sites. Earth spins fastest at the equator (465.1 m/s x cos latitude), and a rocket launched east keeps that
+   speed for free, so a site nearer the equator lifts more. Baikonur's rockets also cannot fly due east (populated
+   areas and drop zones lie along that track), so they launch at 51.6° or more and lose part of even that boost.
+   The latitudes, spin speeds and lowest practical orbit tilts (inc, used in the GMAT export) are real; the masses
+   and costs are tuned for the game. The site no longer changes the spacecraft's own speed change: Earth's spin
+   helps the rocket, which shows up as how much it lifts. */
+const SITES={kourou:{n:'Kourou',where:'French Guiana',lat:5.2,inc:6,cap:1250,cost:9,dv:0,tint:0x4f6a4a,d:'Almost on the equator.'},
+  canaveral:{n:'Cape Canaveral',where:'Florida, USA',lat:28.5,inc:28.5,cap:1200,cost:0,dv:0,tint:0x5a5a5a,d:'The standard choice.'},
+  baikonur:{n:'Baikonur',where:'Kazakhstan',lat:45.6,inc:51.6,cap:1120,cost:-7,dv:0,tint:0x8a7a5a,d:'Cheap, but far north.'}};
 const site=()=>SITES[S.site]||SITES.canaveral, cap=()=>site().cap, spin=s=>465.1*Math.cos(rad(s.lat));
 const rad=x=>x*Math.PI/180, deg=x=>x*180/Math.PI;
 const wrap=a=>((a+180)%360+360)%360-180;
@@ -56,8 +58,9 @@ function posAt(tr,t){
 /* Orbiter instruments. More are offered than the mission needs, and the bridge under the spacecraft has six
    mounting positions, so the player has to choose. Each entry carries its own guide (what it does, how it
    works, what it measures, why it matters, limits) and the capabilities the objective panel reads (cap).
-   Masses, powers and data volumes are simplified game values modelled on the instrument classes named
-   in "tag"; they are not those instruments' specifications. */
+   Masses, powers and resolutions are close to the real instruments named in "tag" (HiRISE 65 kg and 60 W,
+   CRISM 33 kg, THEMIS 11 kg, MOLA 26 kg, Odyssey GRS 30 kg, MARIE 3 kg); costs, data volumes and reliabilities
+   are game values. */
 const INST={
   cam:{name:'High-resolution camera',tag:'HiRISE-type',mass:65,cost:28,power:60,data:8,rel:.96,res:'0.3 m per pixel, 6 km swath',out:'Surface images',
     cap:{img:.3},teach:'Image resolution, planetary geology, remote sensing',
@@ -69,15 +72,15 @@ const INST={
     g:{what:'A small wide-angle camera for regional maps.',how:'A short telescope and a single line of detectors, swept along by the orbit like a push-broom.',
       meas:'Black-and-white pictures 30 km wide at 6 m per pixel.',why:'Shows the layout of a region: channels, craters, the delta fan, sand fields. Cheap, light and easy on the radio.',
       lim:'At 6 m per pixel a 2 m boulder is smaller than one pixel, so it cannot tell a safe landing spot from a boulder field.'}},
-  spec:{name:'Imaging spectrometer',tag:'CRISM-type',mass:33,cost:22,power:45,data:6,rel:.94,res:'18 m per pixel, 0.4 to 4 µm',out:'Mineral spectra',
+  spec:{name:'Imaging spectrometer',tag:'CRISM-type',mass:33,cost:22,power:45,data:6,rel:.94,res:'18 m per pixel, 0.36 to 3.9 µm',out:'Mineral spectra',
     cap:{min:18,nir:true},teach:'Electromagnetic spectrum, absorption spectra, mineral identification',
     g:{what:'A camera that splits reflected sunlight into hundreds of narrow colors.',how:'A grating spreads the light out like a prism. Each mineral absorbs some colors more than others, leaving dips in the spectrum.',
-      meas:'A spectrum for every 18 m pixel, from visible light to 4 µm in the near infrared.',why:'Clays and other minerals that form in water have dips near 1.9 and 2.3 µm. This is how orbiters find where water once was.',
+      meas:'A spectrum for every 18 m pixel in 544 colors, from visible light (0.36 µm) to 3.9 µm in the near infrared.',why:'Clays and other minerals that form in water have dips near 1.9 and 2.3 µm. This is how orbiters find where water once was.',
       lim:'Needs sunlight, so it works only on the day side. Dust coatings hide the rock underneath. Cooled detectors limit how long it can run.',draw:'spectrum'}},
-  tes:{name:'Thermal emission imager',tag:'THEMIS-type',mass:11,cost:9,power:14,data:2,rel:.97,res:'100 m per pixel, 6 to 15 µm',out:'Surface temperature and thermal minerals',
+  tes:{name:'Thermal emission imager',tag:'THEMIS-type',mass:11,cost:9,power:14,data:2,rel:.97,res:'100 m per pixel, 6.8 to 14.9 µm',out:'Surface temperature and thermal minerals',
     cap:{min:100,therm:true,atmNadir:true},teach:'Thermal inertia, infrared emission',
     g:{what:'An infrared camera that measures how warm the ground is, day and night.',how:'Rock holds heat longer than sand or dust, so it stays warmer after sunset. That property is called thermal inertia. Some minerals also glow more weakly at certain infrared colors.',
-      meas:'Surface temperature at 100 m per pixel, a rough estimate of how rocky the ground is, and broad mineral groups such as olivine and carbonate.',why:'Tells bedrock from loose sand across a whole region, and adds a second, independent look at minerals.',
+      meas:'Surface temperature at 100 m per pixel, a rough estimate of how rocky the ground is, and broad mineral groups such as olivine-rich basalt, quartz-rich rock and chloride salts.',why:'Tells bedrock from loose sand across a whole region, and adds a second, independent look at minerals.',
       lim:'Coarse: one 100 m pixel blurs together the layers in the delta. Cannot see the 1.9 and 2.3 µm water bands, which lie in the near infrared. Atmospheric temperatures come out only in broad layers.'}},
   mcs:{name:'Atmospheric profiler',tag:'MCS-type',mass:9,cost:10,power:11,data:1,rel:.98,res:'5 km vertical layers, 0 to 80 km',out:'Temperature, dust and water-vapor profiles',
     cap:{atm:true},teach:'Atmospheric pressure, temperature profiles, planetary climate',
@@ -139,7 +142,7 @@ const SYS={
   comms:{label:'Communications',why:'A bigger dish focuses the signal, so more data reaches Earth on each pass.',tiers:[
     {n:'1 m dish',mass:25,cost:6,power:20,down:6},{n:'2 m high-gain dish',mass:45,cost:12,power:40,down:14},{n:'3 m high-gain dish',mass:80,cost:20,power:70,down:30}]},
   engine:{label:'Propulsion',why:'Higher specific impulse (Isp) gets more velocity change from each kilogram of propellant.',tiers:[
-    {n:'Monopropellant',mass:50,cost:8,isp:230,rel:.99,s:'Isp 230 s, simple'},{n:'Bipropellant',mass:80,cost:17,isp:320,rel:.97,s:'Isp 320 s, complex'},{n:'High-energy bipropellant',mass:95,cost:27,isp:345,rel:.96,s:'Isp 345 s, for big burns'}]},
+    {n:'Monopropellant',mass:50,cost:8,isp:230,rel:.99,s:'Isp 230 s, simple'},{n:'Bipropellant',mass:80,cost:17,isp:320,rel:.97,s:'Isp 320 s, complex'},{n:'High-performance bipropellant',mass:95,cost:27,isp:329,rel:.96,s:'Isp 329 s, the best flown'}]},
   computer:{label:'Computing and data',why:'More autonomy means the spacecraft can protect itself while Earth is minutes away.',tiers:[
     {n:'Basic computer',mass:10,cost:5,power:10,store:16,auto:0,rel:.95},{n:'Standard computer',mass:18,cost:10,power:20,store:40,auto:1,rel:.97},
     {n:'Autonomous computer',mass:30,cost:18,power:35,store:90,auto:2,rel:.985}]},
@@ -148,12 +151,14 @@ const SYS={
 };
 /* Oxygen systems, picked while building. Each one trades mass, power, cost and water against how long
    the crew can breathe. Oxygen is a percentage of the system's supply (1 point = 1 percent) and drain is
-   the percent used each week. The rates are tuned for the game, not for real life-support hardware. */
+   the percent used each week. The rates and masses are tuned for the game, not for real life-support hardware:
+   a real person uses about 0.84 kg of oxygen a day (NASA), so stored oxygen alone for three people on a
+   250-day cruise would be about 630 kg before tanks. */
 const OXY={
   tanks:{n:'Stored oxygen tanks',mass:45,cost:4,power:4,drain:2.6,water:0,backup:8,
     d:'Tanks of gas. Simple and light, but the supply is fixed and every day eats into it.',s:'light · cheap · fixed supply'},
   regen:{n:'Regenerative life support',mass:95,cost:14,power:120,drain:.9,water:-.5,backup:5,
-    d:'Crew carbon dioxide is split back into oxygen. Draws power, recycles water and makes the supply last.',s:'lasts long · draws power'},
+    d:'Breathed-out carbon dioxide is turned back into water (a Sabatier reactor) and electrolysis splits that water into oxygen, as on the Space Station. Draws power, recycles water and makes the supply last.',s:'lasts long · draws power'},
   elec:{n:'Water electrolysis',mass:70,cost:9,power:190,drain:1.5,water:1.4,backup:6,
     d:'Electricity splits water into oxygen and hydrogen. Light on mass, heavy on power and water.',s:'needs water · needs power'},
   hybrid:{n:'Hybrid with backup',mass:125,cost:20,power:110,drain:1.1,water:-.1,backup:18,
@@ -164,11 +169,11 @@ const TR={hohmann:{n:'Hohmann transfer',Q:RM,cost:0,d:'Minimum energy. Leaves Ea
           fast:{n:'Fast transfer',Q:1.56,cost:8,d:'A bigger launch vehicle (costs $8M more) throws you harder. Shorter cruise, but you arrive faster and must brake more.'}};
 const ORB={aero:{n:'Low orbit by aerobraking',d:'Capture into a long ellipse, then skim the upper atmosphere for months to shrink it. Cheap on propellant, costs one observation pass.',passes:9,q:1},
            ellip:{n:'Stay in the capture ellipse',d:'Same small burn, no aerobraking. You are far from the surface most of the time, so data quality drops 40%.',passes:10,q:.6},
-           direct:{n:'Direct to 300 km circular',d:'One large burn straight into the science orbit. Full quality from day one, very propellant-hungry. Needs a light spacecraft and the high-energy engine.',passes:10,q:1}};
+           direct:{n:'Direct to 300 km circular',d:'One large burn straight into the science orbit. Full quality from day one, very propellant-hungry. Needs a light spacecraft and the high-performance engine.',passes:10,q:1}};
 const REG={
   jezero:{n:'Jezero Crater',lon:77.5,lat:18.4,d:'A 45 km crater that once held a lake. A river delta is still visible on its western edge.',
     look:'Mineral composition and evidence of past water.',aff:{cam:.9,spec:1,mcs:.5,radar:.4,ctx:.55,tes:.6,grs:.15,alt:.35,mag:.1,rad:.05}},
-  valles:{n:'Valles Marineris',lon:-70,lat:-10,d:'A canyon system over 4,000 km long and up to 7 km deep. Its walls expose kilometers of layered rock.',
+  valles:{n:'Valles Marineris',lon:-59.2,lat:-13.9,d:'A canyon system over 4,000 km long and up to 7 km deep. Its walls expose kilometers of layered rock.',
     look:'Geological layers, erosion and surface structure.',aff:{cam:1,spec:.7,mcs:.6,radar:.6,ctx:.65,tes:.5,grs:.2,alt:.6,mag:.2,rad:.05}},
   polar:{n:'North polar cap',lon:0,lat:80,d:'Stacked layers of water ice and dust, topped by a seasonal coat of carbon-dioxide frost.',
     look:'Water ice, atmospheric interactions and climate history.',aff:{cam:.6,spec:.6,mcs:1,radar:1,ctx:.4,tes:.55,grs:.7,alt:.45,mag:.15,rad:.05}}
@@ -201,13 +206,13 @@ const NB=[
  ['planning','Delta-v','The total change in velocity a spacecraft can make. Every maneuver spends some of it.'],
  ['design','Rocket equation','Δv = Isp × g₀ × ln(wet mass ÷ dry mass). Each extra kilogram of hardware needs more propellant to move it.'],
  ['design','Power budget','Total generation must cover every system that is switched on, with margin for degradation.'],
- ['design','Redundancy','Carrying a spare of a critical part. It costs mass and money and halves the chance that one failure ends the mission.'],
- ['planning','GMAT','NASA’s open-source General Mission Analysis Tool. Mission designers use it to compute and optimize real trajectories. You can export this game’s flight plan as a GMAT script from the review board.'],
+ ['design','Redundancy','Carrying a spare of a critical part. It costs mass and money, but one failure of that part no longer ends the mission.'],
+ ['planning','GMAT','NASA’s open-source General Mission Analysis Tool. Mission designers use it to compute and optimize real trajectories. The planet positions and transfer paths in this game were computed with it, and you can export your flight plan as a GMAT script from the review board.'],
  ['review','Requirements and verification','Every requirement is written together with the way it will be checked: by test, analysis, inspection or demonstration. A requirement you cannot verify is only a wish.'],
  ['planning','Launch site','Earth spins fastest at the equator: 465 m/s. A rocket launched east keeps that speed for free, so sites near the equator lift more.'],
  ['planning','Spacecraft and launch vehicle','The launch vehicle is the rocket. It lifts the spacecraft off Earth and is then thrown away. The spacecraft is what travels on to Mars.'],
- ['cruise','Life support','Crews need food, water and oxygen every day. Recycling water and air is what makes a long trip possible.'],
- ['cruise','Light-time delay','Radio travels at 299,792 km/s. Earth to Mars takes 3 to 22 minutes one way, so joystick control is impossible.'],
+ ['cruise','Life support','Each person uses about 0.84 kg of oxygen, 2.4 kg of drinking and food-preparation water and 0.6 kg of dry food a day (NASA figures). Recycling water and air is what makes a long trip possible.'],
+ ['cruise','Light-time delay','Radio travels at 299,792 km/s. Earth to Mars takes 3 to 22 minutes one way, depending on where the planets are, so joystick control is impossible.'],
  ['cruise','Inverse-square law','Sunlight intensity falls with the square of distance. At 1.52 AU you get 1 ÷ 1.52² = 43% of the power.'],
  ['cruise','Trajectory correction','Small burns during cruise remove aiming errors. The earlier you correct, the less propellant it costs.'],
  ['moi','Orbit insertion','Arriving spacecraft move faster than Mars’s escape velocity. An engine burn at closest approach slows them enough to be captured.'],
@@ -596,7 +601,7 @@ VIEW.planning=()=>{
     <div class="row between"><button class="ghost" id="d-">−1 day</button><b class="num" id="depLab"></b><button class="ghost" id="d+">+1 day</button></div>
     ${S.guided?'<button class="ghost" id="findWin">Find the window</button>':''}</div>
   <div class="grid"><div class="panel"><p class="kicker">Launch site ${Help.q('site')}</p><div class="sites">${Object.keys(SITES).map(k=>{const s=SITES[k];return `<button class="opt" data-site="${k}" aria-pressed="${S.site===k}"><b>${s.n}</b><span class="s">${f1(s.lat)}° N</span>
-      <span class="sitestat"><i>Lifts</i><b>${f0(s.cap)} kg</b><i>Cost</i><b>${s.cost>0?'+':''}${money(Math.abs(s.cost))}</b><i>Speed change</i><b>+${s.dv} m/s</b></span></button>`;}).join('')}</div></div>
+      <span class="sitestat"><i>Lifts</i><b>${f0(s.cap)} kg</b><i>Cost</i><b>${s.cost>0?'+':s.cost<0?'−':''}${money(Math.abs(s.cost))}</b><i>Earth’s spin</i><b>${f0(spin(s))} m/s</b></span></button>`;}).join('')}</div></div>
     <div class="panel"><p class="kicker">Route ${Help.q('hohmann')}</p><div class="choices two">${Object.keys(TR).map(k=>`<button class="opt" data-tr="${k}" aria-pressed="${S.transfer===k}"><b>${TR[k].n}</b><span class="s">${{hohmann:'Slow · least propellant',fast:'Quick · harder braking'}[k]||''}</span></button>`).join('')}</div></div>
     <div class="panel"><p class="kicker">Orbit at Mars ${Help.q('aerobrake')}</p><div class="choices">${Object.keys(ORB).map(k=>`<button class="opt" data-orb="${k}" aria-pressed="${S.orbit===k}"><b>${ORB[k].n}</b><span class="s">${{aero:'Least propellant · slow to settle',ellipse:'Medium propellant',direct:'Most propellant · ready at once'}[k]||''}</span></button>`).join('')}</div></div>
     <div class="panel" id="planOut"></div></div></section>
@@ -1095,9 +1100,9 @@ VIEW.ops=()=>{
 /* Landing site selection: the one decision Mission 1 exists to make. The table shows measurements, never verdicts.
    A column is filled only if that instrument observed Jezero. The values are simulated survey data. */
 const LSITE={delta:['A','Delta front'],floor:['B','Crater floor'],rim:['C','East bench']};
-const SURV={delta:{cam:'Rocks 18% · slopes to 12°',ctx:'Bright layered scarp, dark sand patches',spec:'Dips at 1.9 and 2.3 µm, deep',tes:'Thermal inertia 420: rocky',radar:'Stacked echoes to 40 m',mcs:'Dust 0.6 · wind 6 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 4° · scarp 60 m',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'0.3 km'},
-  floor:{cam:'Rocks 5% · slopes to 3°',ctx:'Smooth, even plain',spec:'One broad dip near 1.0 µm',tes:'Thermal inertia 260: sand and rock',radar:'One flat echo at 10 m',mcs:'Dust 0.6 · wind 4 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 1°',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'1.0 km'},
-  rim:{cam:'Rocks 11% · slopes to 19°',ctx:'Pale banded slopes',spec:'Dips at 2.3 and 2.5 µm',tes:'Thermal inertia 520: mostly bedrock',radar:'No clear echo',mcs:'Dust 0.5 · wind 11 m/s',grs:'Hydrogen 2.6% (footprint covers all sites)',alt:'Regional slope 7°',mag:'Field under 10 nT',rad:'Orbit dose 0.33 mGy/day',drive:'1.5 km'}};
+const SURV={delta:{cam:'Rocks 18% · slopes to 12°',ctx:'Bright layered scarp, dark sand patches',spec:'Dips at 1.9 and 2.3 µm, deep',tes:'Thermal inertia 420: rocky, crusted ground',radar:'Stacked echoes to about 80 m',mcs:'Dust opacity 0.6 · air 2 km up −58 °C',grs:'Water-equivalent hydrogen 3% (footprint covers all sites)',alt:'Regional slope 4° · scarp about 40 m',mag:'Field under 10 nT',rad:'Orbit dose about 0.22 mGy/day',drive:'0.3 km'},
+  floor:{cam:'Rocks 5% · slopes to 3°',ctx:'Smooth, even plain',spec:'One broad dip near 1.0 µm',tes:'Thermal inertia 260: sand and rock',radar:'One flat echo at about 35 m',mcs:'Dust opacity 0.6 · air 2 km up −58 °C',grs:'Water-equivalent hydrogen 3% (footprint covers all sites)',alt:'Regional slope 1°',mag:'Field under 10 nT',rad:'Orbit dose about 0.22 mGy/day',drive:'1.0 km'},
+  rim:{cam:'Rocks 11% · slopes to 19°',ctx:'Pale banded slopes',spec:'Dips at 2.3 and 2.5 µm',tes:'Thermal inertia 700: rock, patches of bedrock',radar:'No clear echo',mcs:'Dust opacity 0.5 · air 2 km up −60 °C',grs:'Water-equivalent hydrogen 3% (footprint covers all sites)',alt:'Regional slope 7°',mag:'Field under 10 nT',rad:'Orbit dose about 0.22 mGy/day',drive:'1.5 km'}};
 VIEW.site=()=>{const o=S.ops,has=k=>!!o&&(o.cnt['jezero'+k]||0)>0,K=Object.keys(LSITE);
   main.innerHTML=head(8,'Landing site','Mission Planning Center')+`
   <section class="panel task slim"><p class="kicker">Task · choose where the surface crew lands ${Help.q('landing')}</p></section>
@@ -1166,7 +1171,7 @@ const ADVICE={
   'Rock strike':[['You stayed on the object\u2019s path.','The rock crossed your track and the spacecraft was destroyed.','Push away from the rock and check the gap bar before you fire.']],
   'Off course':[['The correction burn did not close the gap.','A miss wider than 90,000 km leaves no propellant plan that can reach Mars.','Move the cross into the ring, then burn only what you need.']],
   'Instrument fault':[['A healthy channel was switched off.','Each wrong switch cost margin, and the fault spread to the main bus.','Compare every reading with its range. Cut only the ones outside it.']],
-  'Solar storm':[['Too little mass faced the Sun.','The dose passed the electronics limit and the computer failed.','Turn a tank or the engine toward the Sun. Shielding matters more than speed.']]
+  'Solar storm':[['Too little mass faced the Sun.','So many protons got through that one latched up the computer and burned it out, and the crew went far past their 30-day dose limit.','Turn a tank or the engine toward the Sun. Shielding matters more than speed.']]
 };
 const adviceFor=(name,death)=>ADVICE[name]||[[name+'.',death,'Read the flight log and change the decision that caused it.']];
 async function guide(title,rows){
@@ -1185,13 +1190,17 @@ function mgOpen(kicker,title,body,wide){const o=document.createElement('div');o.
 function mgTimer(el,secs,onEnd,label='Time left'){let left=secs;const draw=()=>{el.innerHTML=meter(label,Math.max(0,left),secs,'s',left<secs*.3?'over':'warn');};draw();
   const iv=setInterval(()=>{left-=1;draw();if(left<=0){clearInterval(iv);onEnd();}},1000*Math.max(DEMO.k,.02));return ()=>clearInterval(iv);}
 
-/* Solar storm. Every 5 g/cm² of material between the Sun and the computer halves the dose.
+/* Solar storm. Every 5 g/cm² of material between the Sun and the crew and computer roughly halves the dose (a fair
+   rule of thumb for solar protons behind moderate shielding). 25 rad is NASA's 30-day limit for an astronaut's
+   blood-forming organs (25 cGy-Eq, NASA-STD-3001). Electronics are hurt by single particle hits rather than by the
+   total dose: more protons getting through means more memory upsets, and in the worst case a latch-up that burns
+   out the computer.
    Radiation never destroys the spacecraft. Too much of it upsets the computer, degrades detectors and raises the
    crew's dose, and those consequences carry through the rest of the mission. */
 function evStorm(){return new Promise(res=>{
   const h=3+(Math.random()*3|0),D0=25*2**h,need=5*h,flip=Math.random()<.5,A='Tanks toward the Sun',B='Equipment bay toward the Sun';
   const opts=[{n:'Dish toward the Sun',s:3},{n:'Instrument deck toward the Sun',s:8,inst:1},{n:flip?A:B,s:need-3},{n:flip?B:A,s:need+1},{n:'Engine toward the Sun',s:need+12,cost:1}].sort(()=>Math.random()-.5);
-  const o=mgOpen('Solar storm '+Help.q('storm'),'Turn the spacecraft',`<div class="readouts"><div><span>Unshielded dose</span><b class="num">${D0} rad</b></div><div><span>Electronics limit</span><b class="num">25 rad</b></div><div><span>Dose halves every</span><b class="num">5 g/cm² ${Help.q('radiation')}</b></div></div>
+  const o=mgOpen('Solar storm '+Help.q('storm'),'Turn the spacecraft',`<div class="readouts"><div><span>Unshielded dose</span><b class="num">${D0} rad</b></div><div><span>Crew 30-day limit</span><b class="num">25 rad</b></div><div><span>Dose halves every</span><b class="num">5 g/cm² ${Help.q('radiation')}</b></div></div>
     <div id="mgT"></div>${S.fl&&S.fl.on.includes('rad')?'<p class="dim" style="font-size:.86rem">Radiation monitor: proton flux rising for 25 s before the alarm. You have extra time.</p>':''}
     <div class="choices">${opts.map((x,i)=>`<button class="choice" data-i="${i}"><b>${x.n}</b><span>Shielding <b class="num" style="color:var(--amber)">${x.s} g/cm²</b>${x.cost?' · arrays in shadow':''}${x.inst?' · detectors exposed':''}</span></button>`).join('')}</div>`);
   let done=false;const fin=async i=>{if(done)return;done=true;stop();o.remove();const x=opts[i],dose=x?D0*Math.pow(.5,x.s/5):D0,lv=dose<=25.001?0:dose<=200?1:2,out=[];
@@ -1203,7 +1212,7 @@ function evStorm(){return new Promise(res=>{
       if(S.cr)S.cr.tick=Math.min(S.cr.N-1,S.cr.tick+lv);}
     pt('Solar storm',lv===0?(x.cost?9:15):lv===1?5:0,15);
     lg(`Solar storm: dose ${f0(dose)} rad.${out.length?' '+out.join('. ')+'.':''}`);
-    await tell('Outcome',lv===0?'Storm weathered':lv===1?'Electronics upset':'Heavy radiation damage',`<div class="readouts"><div><span>Dose received</span><b class="num">${f1(dose)} rad</b></div></div>${out.length?`<ul class="plain">${out.map(t=>`<li>${t}</li>`).join('')}</ul>`:''}`);
+    await tell('Outcome',lv===0?'Storm weathered':lv===1?'Over the crew limit, computer upsets':'Heavy radiation damage',`<div class="readouts"><div><span>Dose received</span><b class="num">${f1(dose)} rad</b></div></div>${out.length?`<ul class="plain">${out.map(t=>`<li>${t}</li>`).join('')}</ul>`:''}`);
     if(lv===2){
       /* A dose this large takes the computer with it. Without a computer there is no braking burn, so the
          spacecraft sails past Mars. This is not a spacecraft explosion: it is a mission that misses. */
@@ -1215,7 +1224,7 @@ function evStorm(){return new Promise(res=>{
         {text:`${S.name} crosses Mars orbit with no way to slow down.`},
         {who:'park',text:'It is going past. There is nothing to send.'}]});
       await guide('Mars, and past it',[
-        ['The spacecraft stayed side-on to the Sun.','Thin walls faced the storm, the dose passed the electronics limit and the computer failed.','Turn so a tank or the engine sits between the Sun and the bay. Read the shielding number, not the clock.'],
+        ['The spacecraft stayed side-on to the Sun.','Thin walls faced the storm. So many protons got through that one latched up the computer and burned it out.','Turn so a tank or the engine sits between the Sun and the bay. Read the shielding number, not the clock.'],
         ['No braking burn was possible.','With no computer the spacecraft could not turn or fire, so Mars went by.','Shielding is a choice you make in half a minute. Check the grams per square centimetre before you pick.']]);
       return res(false);}
     res(true);};

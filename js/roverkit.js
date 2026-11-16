@@ -94,7 +94,7 @@ const RK=(()=>{
      mount: mast | deck | arm (turret) | body. units = mounting units used. use = energy per use (Wh) and data per use (MB).
      run = continuous power while on (W). Each has a guide. */
   const INS={
-    pancam:{n:'Panoramic stereo camera',tag:'Mastcam-Z-type',mount:'mast',units:1,mass:4,cost:4,run:0,use:{wh:4,mb:180},rel:.98,res:'zoom, 0.7 mm per pixel at 2 m',
+    pancam:{n:'Panoramic stereo camera',tag:'Mastcam-Z-type',mount:'mast',units:1,mass:4,cost:4,run:0,use:{wh:4,mb:180},rel:.98,res:'zoom, 0.13 to 0.6 mm per pixel at 2 m',
       g:{what:'A pair of color zoom cameras on the mast, like a geologist’s eyes.',how:'Two cameras a short distance apart take the same view; the difference between the two pictures gives depth, like your two eyes.',
         meas:'Color stereo pictures of rocks and terrain, close enough to see layering and coarse grains.',why:'Layers, cross-bedding and pebbles are how geologists recognize rock laid down by water.',
         lim:'Sees surfaces only, not chemistry. Grains smaller than sand are a blur. Each picture is a large file.'}},

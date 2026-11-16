@@ -27,18 +27,23 @@ const Rover=(()=>{
 
   /* rock classes. comp = simulated element abundances (weight %, as oxides) */
   const CLS={
-    mud:{n:'Fine-grained layered rock',sed:true,label:'Sedimentary mudstone',col:'#b58d6c',comp:{Si:46,Fe:12,Mg:6,Al:14,Ca:4,S:2},
+    mud:{n:'Fine-grained layered rock',sed:true,label:'Sedimentary mudstone',col:'#b58d6c',comp:{Si:44,Fe:19,Mg:8,Al:9,Ca:5,S:5},
       obs:['Paper-thin horizontal layers.','Breaks into flat plates.'],micro:'Grains finer than silt, packed in flat sheets: settled out of still water.'},
-    sand:{n:'Coarse layered rock',sed:true,label:'Sedimentary sandstone',col:'#c39a72',comp:{Si:55,Fe:9,Mg:5,Al:11,Ca:5,S:1},
+    sand:{n:'Coarse layered rock',sed:true,label:'Sedimentary sandstone',col:'#c39a72',comp:{Si:49,Fe:17,Mg:9,Al:10,Ca:7,S:1.5},
       obs:['Layers that tilt and cut across each other.','Stands out as a ledge.'],micro:'Sand grains and pebbles, worn round: rolled along by flowing water.'},
-    bas:{n:'Dark massive rock',sed:false,label:'Igneous basalt, rich in olivine',col:'#5b4a44',comp:{Si:42,Fe:20,Mg:18,Al:7,Ca:6,S:1},
+    bas:{n:'Dark massive rock',sed:false,label:'Igneous basalt, rich in olivine',col:'#5b4a44',comp:{Si:41,Fe:22,Mg:22,Al:4,Ca:4,S:.8},
       obs:['No layering at all.','Pitted by small holes.'],micro:'Interlocking green-grey crystals: cooled from molten rock.'},
-    carb:{n:'Pale banded rock',sed:false,label:'Carbonate-bearing rock',col:'#cdb9a0',comp:{Si:22,Fe:10,Mg:22,Al:3,Ca:14,S:1},
+    carb:{n:'Pale banded rock',sed:false,label:'Carbonate-bearing rock',col:'#cdb9a0',comp:{Si:33,Fe:19,Mg:27,Al:2,Ca:3,S:1},
       obs:['Pale tan bands along the slope.','Sits high, near the old shoreline level.'],micro:'Fine crystals with a rough, etched surface: a mineral that grows in water.'},
-    sulf:{n:'White vein in fractured rock',sed:false,label:'Sulfate vein',col:'#e8e2d6',comp:{Si:18,Fe:6,Mg:5,Al:3,Ca:26,S:30},
+    sulf:{n:'White vein in fractured rock',sed:false,label:'Sulfate vein',col:'#e8e2d6',comp:{Si:8,Fe:4,Mg:2,Al:2,Ca:33,S:44},
       obs:['Bright white material filling cracks.','Cuts across the host rock.'],micro:'Soft white crystals grown into the crack: left by water seeping through.'}};
   const LABID={mud:'Clay minerals and a little sulfate',sand:'Quartz-poor sand with clay cement',bas:'Olivine and pyroxene, no clay',carb:'Magnesium carbonate',sulf:'Calcium sulfate (gypsum-like)'};
-  const ELS=['Si','Fe','Mg','Al','Ca','S'],ELN={Si:'Silicon',Fe:'Iron',Mg:'Magnesium',Al:'Aluminum',Ca:'Calcium',S:'Sulfur'};
+  /* Chemistry is reported the way rover instruments (APXS, PIXL, ChemCam, SuperCam) report it: as oxide weight
+     percent. The values are typical of real rocks of each type at Gale and Jezero craters (for example olivine-rich
+     Séítah rocks at Jezero have about 22% MgO; calcium sulfate veins at Gale about 33% CaO and 44% SO3). The rest
+     of each total is oxides not shown (sodium, potassium, titanium...), plus carbon dioxide and water, which
+     these instruments do not measure. */
+  const ELS=['Si','Fe','Mg','Al','Ca','S'],ELN={Si:'SiO₂ (silica)',Fe:'FeO (iron)',Mg:'MgO (magnesium)',Al:'Al₂O₃ (aluminum)',Ca:'CaO (calcium)',S:'SO₃ (sulfur)'};
   /* ---------- the ten rock formations ----------
      Generated once per rover mission from a seed stored with the game, so a refresh or a resumed game keeps the
      same ten. Each formation's rock type follows where it sits: layered sedimentary rock on and under the delta
@@ -246,7 +251,7 @@ const Rover=(()=>{
       const first=!f.scan;if(!f.scan||q>f.scan.q)f.scan={v,q,how};f.seen=true;if(first)say(`${how==='contact'?'Contact':'Laser'} analysis of ${f.name} recorded.`);
       const s=f.scan,mx=Math.max(...ELS.map(el=>s.v[el]),30);S.panel='scan';panelEl.hidden=false;
       panelEl.innerHTML=panelHead(`Analysis · ${f.name}`)+`
-        <div class="row between"><span class="pill ${s.q>.66?'go':s.q>.33?'warn':'nogo'}">${s.how==='contact'?'Contact reading':s.q>.66?'Clean spectrum':s.q>.33?'Partly on dust':'Mostly dust: noisy'}</span><span class="mono dim" style="font-size:.6rem">SIMULATED MEASUREMENT · WEIGHT %</span></div>
+        <div class="row between"><span class="pill ${s.q>.66?'go':s.q>.33?'warn':'nogo'}">${s.how==='contact'?'Contact reading':s.q>.66?'Clean spectrum':s.q>.33?'Partly on dust':'Mostly dust: noisy'}</span><span class="mono dim" style="font-size:.6rem">SIMULATED MEASUREMENT · OXIDE WEIGHT %</span></div>
         <div class="elbars">${ELS.map(el=>`<div><span>${ELN[el]}</span><i><b style="width:${s.v[el]/mx*100}%"></b></i><b class="num">${s.v[el].toFixed(1)}</b></div>`).join('')}</div>
         ${first?'':'<p class="dim" style="font-size:.82rem">This rock was already analyzed. A repeat can sharpen the reading but adds no new science.</p>'}
         <p class="kicker">Field classification ${H_('libs')}</p><div class="choices">${Object.keys(CLS).map(k=>`<button type="button" class="choice" data-g="${k}" aria-pressed="${f.guess===k}"><b>${CLS[k].label}</b></button>`).join('')}</div>

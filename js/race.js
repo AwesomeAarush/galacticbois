@@ -2,14 +2,18 @@
 /* Race mode: two to six players fly the same mission at the same time and compare scores live.
 
    How it connects. The host's browser opens a room with a five-character code; the others type the code.
-   Messages travel through a free public MQTT message relay over a secure WebSocket (the same kind of service
-   that connects sensors and chat apps). No accounts, no keys, no game server to deploy, and it works through
-   school and home routers because every browser only makes an ordinary outgoing connection.
-   Three public relays are tried in turn; the host's room is found on whichever one it opened on.
-   The host keeps the room: every player sends progress to the host, and the host sends out the leaderboard.
-   Messages are not private (anyone who knows the room code could read them); they carry only call signs,
-   stages and scores. To use your own relay, set window.MCB_RELAYS=['wss://your.broker/mqtt'] before this
-   file loads, or add ?relay=ws://... to the address (the tests do this).
+   Two kinds of route carry the messages, and the host listens on every one that works from its network:
+   1. The game server: /api/race on the same site that serves the game (api/race.js, a Vercel Function with
+      a free Upstash Redis store). Plain HTTPS requests, so it works wherever the game itself loads. It has to
+      be switched on once in Vercel (see README, "Race mode"); until then it reports itself as not set up.
+   2. Public MQTT relays over secure WebSockets: mqtt.eclipseprojects.io (port 443), broker.emqx.io (8084),
+      broker.hivemq.com (8884), test.mosquitto.org (8081). Free test services with no guarantees; some networks
+      block them. The MQTT library ships with the game (js/vendor/mqtt.min.js).
+   A joining player tries every route at once and keeps the first one the host answers on.
+   The host keeps the room: players send progress to the host, the host sends out the leaderboard.
+   Messages carry only call signs, stages and scores, and are not private.
+   Overrides for testing or your own relay: ?api=/path or ?api=0, ?relay=wss://a,wss://b, window.MCB_API,
+   window.MCB_RELAYS.
 
    Fairness. Everyone gets the same seed, so the launch window day, the order and timing of cruise events,
    whether the rare events happen, the rover landing site and the ten rock formations are the same for all.
@@ -17,28 +21,79 @@
 
    game.js provides window.__raceStart(mission, seed, site) and window.__raceProgress(). */
 const Race=(()=>{
-  const LIB='https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js',TOPIC='mcb-race/v2/',ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789',MAX=6,SITES=['delta','floor','rim'];
-  const RELAYS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+  const ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789',MAX=6,SITES=['delta','floor','rim'],TOPIC='mcb-race/v3/';
+  const RELAYS=['wss://mqtt.eclipseprojects.io/mqtt','wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+  const LIBS=['js/vendor/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
   const qs=new URLSearchParams(location.search);
-  let cli=null,relay='',myId='',role=null,code='',myName='',players=[],cfg={mission:1,started:false,seed:0,site:'delta'},board=[],over=false,t0=0,tick=null,finished=null,ov=null,lastStage='';
+  const API=qs.get('api')==='0'?null:(qs.get('api')||window.MCB_API||'/api/race');
+  const relays=()=>qs.get('relay')?qs.get('relay').split(',').filter(Boolean):(window.MCB_RELAYS||RELAYS);
+  const hostOf=u=>{try{return new URL(u).host;}catch(e){return u;}};
+  let links=[],myId='',role=null,code='',myName='',players=[],cfg={mission:1,started:false,seed:0,site:'delta'},board=[],over=false,t0=0,tick=null,beat=null,finished=null,ov=null,lastStage='',lastDown=0,routes=[],lastSent=0,sendT=null;
+  const seen=new Set();
   const esc=s=>String(s).replace(/[<>&"'`]/g,'');
   const fmtT=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-  const relays=()=>qs.get('relay')?qs.get('relay').split(','):(window.MCB_RELAYS||RELAYS);
-  function lib(){return new Promise((res,rej)=>{if(window.mqtt)return res();const s=document.createElement('script');s.src=LIB;s.onload=()=>res();
-    s.onerror=()=>rej(new Error('The race library did not load. Check your internet connection and try again.'));document.head.appendChild(s);});}
-  const T=k=>TOPIC+code+'/'+k;
-  /* open one relay connection; resolves with the client or null after a few seconds */
-  function connect(url,will){return new Promise(res=>{let done=false;const c=window.mqtt.connect(url,{clientId:'mcb_'+myId,keepalive:120,connectTimeout:6000,reconnectPeriod:2000,clean:true,will});
-    const fin=v=>{if(done)return;done=true;if(!v)try{c.end(true);}catch(e){}res(v);};
-    c.on('connect',()=>fin(c));c.on('error',()=>fin(null));setTimeout(()=>fin(null),7000);});}
-  const pub=(k,m,opt)=>{if(cli)cli.publish(T(k),m==null?'':JSON.stringify(m),opt||{qos:1});};
-  /* wait for one message on a topic that passes a test */
-  function await1(topic,test,ms){return new Promise(res=>{const h=(t,b)=>{if(t!==topic)return;let m=null;try{m=b.length?JSON.parse(b.toString()):{gone:true};}catch(e){return;}if(test(m)){cli.removeListener('message',h);clearTimeout(to);res(m);}};
-    const to=setTimeout(()=>{cli.removeListener('message',h);res(null);},ms);cli.on('message',h);});}
-  const send=(id,m)=>pub('down',Object.assign({to:id},m));
-  const everyone=m=>pub('down',m);
   const newCode=()=>Array.from({length:5},()=>ALPH[Math.random()*ALPH.length|0]).join(''),newId=()=>Math.random().toString(36).slice(2,12);
   const save=()=>{try{sessionStorage.setItem('mcb-race',JSON.stringify({code,name:myName,role,cfg,t0}));}catch(e){}};
+  const fresh=m=>{if(!m||typeof m!=='object')return false;if(!m.mid)return true;if(seen.has(m.mid))return false;seen.add(m.mid);if(seen.size>4000)seen.clear();return true;};
+
+  /* ---------- routes ---------- */
+  let libP=null;
+  function lib(){if(window.mqtt)return Promise.resolve(true);if(libP)return libP;
+    libP=(async()=>{for(const src of LIBS){const ok=await new Promise(done=>{const el=document.createElement('script');el.src=src;el.onload=()=>done(!!window.mqtt);el.onerror=()=>{el.remove();done(false);};document.head.appendChild(el);});if(ok)return true;}libP=null;return false;})();return libP;}
+  /* 'ready' | 'unset' (route exists, no store) | 'none' (no route on this host) | 'off' */
+  async function apiState(){if(!API)return 'off';
+    try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),6000);const r=await fetch(API,{cache:'no-store',signal:ctl.signal});clearTimeout(to);
+      const j=await r.json().catch(()=>null);return j&&j.ok?(j.store?'ready':'unset'):'none';}catch(e){return 'none';}}
+  /* the game-server route: polls the room's list every 1.2 s (2.5 s once the race runs); sends right away */
+  function apiLink(room,listen){
+    const L={kind:'api',label:'Game server',down:false};let since=-1,out=[],timer=null,flushT=null,closed=false,busy=false,handler=null,period=1200,fails=0;
+    async function cycle(){if(closed||busy)return;busy=true;const pub=out.splice(0,20);
+      try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({room,pub,poll:[{box:listen,since}]})});
+        if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json(),n=j.next&&j.next[listen];
+        if(typeof n==='number'){const got=(j.got&&j.got[listen])||[];since=n;got.forEach(m=>{if(handler)handler(listen,m);});}
+        if(L.down){L.down=false;if(L.onup)L.onup();}fails=0;}
+      catch(e){out=pub.concat(out).slice(-60);if(++fails>=3&&!L.down){L.down=true;if(L.ondown)L.ondown();}}
+      busy=false;if(out.length&&!closed)later(80);}
+    function later(ms){clearTimeout(flushT);flushT=setTimeout(cycle,ms);}
+    L.onMsg=fn=>{handler=fn;};
+    L.pub=(box,m)=>{if(closed)return;out.push({box,msg:m});later(40);};
+    L.start=()=>{if(timer)return;timer=setInterval(cycle,period);cycle();};
+    L.rate=ms=>{period=ms;if(timer){clearInterval(timer);timer=setInterval(cycle,period);}};
+    L.close=()=>{if(closed)return;closed=true;clearInterval(timer);clearTimeout(flushT);
+      if(out.length)try{fetch(API,{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({room,pub:out.splice(0,20),poll:[]})});}catch(e){}};
+    return L;}
+  /* one public relay; resolves with a link once subscribed, or null after 8 s */
+  function mqttLink(url,room,listen){return new Promise(res=>{let done=false,c;
+    try{c=window.mqtt.connect(url,{clientId:'mcb_'+(myId||newId())+'_'+Math.random().toString(36).slice(2,6),keepalive:45,connectTimeout:6500,reconnectPeriod:3000,clean:true,protocolVersion:4});}catch(e){return res(null);}
+    const L={kind:'relay',label:hostOf(url),url,down:false};let handler=null;
+    L.pub=(box,m)=>{try{c.publish(TOPIC+room+'/'+box,JSON.stringify(m),{qos:1});}catch(e){}};
+    L.onMsg=fn=>{handler=fn;};L.start=()=>{};L.rate=()=>{};L.close=()=>{try{c.end(true);}catch(e){}};
+    c.on('message',(t,b)=>{const box=t.slice(t.lastIndexOf('/')+1);let m;try{m=JSON.parse(b.toString());}catch(e){return;}if(handler)handler(box,m);});
+    c.on('offline',()=>{if(done&&!L.down){L.down=true;if(L.ondown)L.ondown();}});
+    c.on('connect',()=>{if(!done){c.subscribe(TOPIC+room+'/'+listen,{qos:1},err=>{if(done)return;done=true;if(err){L.close();res(null);}else res(L);});}
+      else if(L.down){L.down=false;if(L.onup)L.onup();}});
+    c.on('error',()=>{});
+    setTimeout(()=>{if(!done){done=true;L.close();res(null);}},8000);});}
+  /* open every route at once; onLink(link) fires as each one opens; resolves with the report when all have settled */
+  async function openRoutes(room,listen,onLink){const report=[];
+    const got=l=>{if(onLink)onLink(l);else l.close();};
+    await Promise.all([
+      (async()=>{const st=await apiState();report.push({label:'Game server',kind:'api',st});if(st==='ready')got(apiLink(room,listen));})(),
+      (async()=>{if(!relays().length)return;if(!await lib()){report.push({label:'Public relays',kind:'relay',st:'nolib'});return;}
+        await Promise.all(relays().map(async u=>{const t=Date.now(),l=await mqttLink(u,room,listen);report.push({label:hostOf(u),kind:'relay',st:l?'ok':'fail',ms:Date.now()-t});if(l)got(l);}));})()]);
+    const order=x=>x.kind==='api'?-1:relays().map(hostOf).indexOf(x.label);report.sort((a,b)=>order(a)-order(b));return {report};}
+  const ST={ready:'ready',unset:'not set up on this site',none:'not on this site',off:'switched off',ok:'reachable',fail:'blocked or down',nolib:'library did not load'};
+  const routeList=R=>`<ul class="plain routes">${R.map(r=>`<li class="${r.st==='ok'||r.st==='ready'?'ok':'no'}"><b>${r.st==='ok'||r.st==='ready'?'✓':'✗'}</b> ${esc(r.label)} <span class="dim">${ST[r.st]||r.st}${r.ms&&r.st==='ok'?` · ${r.ms} ms`:''}</span></li>`).join('')}</ul>`;
+  function noRoute(R){const api=R.find(r=>r.kind==='api');
+    return 'This network could not reach any race connection. '+(api&&api.st==='unset'?'The game server route exists but has no store yet: connect Upstash for Redis in Vercel (README, "Race mode"). ':api&&api.st==='none'?'This copy of the game has no game server route (it needs to be deployed on Vercel). ':'')+'Use "Check connection" for details, or try another network.';}
+  const viaOK=()=>links.some(l=>!l.down);
+  function linkState(){const el=document.getElementById('raceBoard');if(el)el.classList.toggle('lost',!viaOK());if(cfg.started)drawBoard(viaOK()?'':'Connection lost. Retrying…');}
+  /* host: send to everyone on every route; guest: send to the host on its route */
+  function out(box,m){m.mid=newId();links.forEach(l=>{if(!l.down||l.kind==='api')l.pub(box,m);});}
+  const send=(id,m)=>out('down',Object.assign({to:id},m));
+  const everyone=m=>out('down',m);
+  async function check(){return (await openRoutes('CHECK','down')).report;}
+  let session=0;
 
   /* ---------- the lobby and results window ---------- */
   function close(){if(ov){ov.remove();ov=null;}}
@@ -51,79 +106,94 @@ const Race=(()=>{
           <button type="button" class="btn" id="rcHost">Create room</button></div>
         <div class="panel"><p class="kicker">Join a race</p><input id="rcCode" class="txt" maxlength="5" placeholder="Room code" autocomplete="off" style="text-transform:uppercase;letter-spacing:.2em">
           <button type="button" class="btn" id="rcJoin">Join</button></div></div>
-      <p class="dim" id="rcMsg" style="font-size:.84rem;min-height:1.2em"></p>
-      <div class="row"><button type="button" class="ghost" id="rcX">Close</button></div>`);
+      <p class="dim" id="rcMsg" role="status" style="font-size:.84rem;min-height:1.2em"></p><div id="rcRoutes"></div>
+      <div class="row"><button type="button" class="ghost" id="rcCheck">Check connection</button><button type="button" class="ghost" id="rcX">Close</button></div>`);
     let m=1;o.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{m=+b.dataset.rm;o.querySelectorAll('[data-rm]').forEach(x=>x.setAttribute('aria-pressed',x===b));});
-    const nm=()=>(o.querySelector('#rcName').value||'').replace(/[<>&"'`$\\]/g,'').trim().slice(0,18)||'Wayfarer',msg=t=>{o.querySelector('#rcMsg').textContent=t;};
+    const nm=()=>(o.querySelector('#rcName').value||'').replace(/[<>&"'`$\\]/g,'').trim().slice(0,18)||'Wayfarer',msg=t=>{const e=o.querySelector('#rcMsg');if(e)e.textContent=t;};
+    const busy=v=>o.querySelectorAll('#rcHost,#rcJoin,#rcCheck').forEach(b=>b.disabled=v);
     o.querySelector('#rcX').onclick=close;
-    o.querySelector('#rcHost').onclick=()=>{msg('Opening a room…');host(nm(),m).catch(e=>msg(e.message));};
-    o.querySelector('#rcJoin').onclick=()=>{const c=(o.querySelector('#rcCode').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');if(c.length!==5)return msg('Room codes have five letters and digits.');msg('Connecting…');join(c,nm()).catch(e=>msg(e.message));};}
-  function lobby(note){if(cfg.started&&!over)return;const list=role==='host'?players.map(p=>({name:p.name,host:p.host})):board.length?board:[];
+    o.querySelector('#rcCheck').onclick=async()=>{busy(true);msg('Checking every route from this network (up to 8 seconds)…');const R=await check();busy(false);
+      const n=R.filter(r=>r.st==='ok'||r.st==='ready').length;msg(n?`Race mode can connect from here (${n} route${n>1?'s':''}). Host and players only need one route in common.`:noRoute(R));
+      const el=o.querySelector('#rcRoutes');if(el)el.innerHTML=routeList(R);};
+    o.querySelector('#rcHost').onclick=()=>{busy(true);msg('Opening a room on every route that works (up to 8 seconds)…');host(nm(),m).catch(e=>{busy(false);msg(e.message);if(e.report){const el=o.querySelector('#rcRoutes');if(el)el.innerHTML=routeList(e.report);}});};
+    o.querySelector('#rcJoin').onclick=()=>{const c=(o.querySelector('#rcCode').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/O/g,'0').replace(/[IL]/g,'1');
+      if(c.length!==5)return msg('Room codes have five letters and digits.');if(/[01]/.test(c))return msg('Room codes never use O, 0, I, L or 1. Check the code with the host.');
+      busy(true);msg('Looking for room '+c+' on every route (up to 10 seconds)…');join(c,nm()).catch(e=>{busy(false);msg(e.message);if(e.report){const el=o.querySelector('#rcRoutes');if(el)el.innerHTML=routeList(e.report);}});};}
+  function lobby(note){if(cfg.started&&!over)return;const list=role==='host'?players.filter(p=>!p.gone).map(p=>({name:p.name,host:p.host})):board.length?board:[];
+    const via=links.filter(l=>!l.down).map(l=>l.label);
     const o=overlay(`<p class="kicker">Race room</p><h3 class="mono" style="letter-spacing:.2em">${code}</h3>
-      <p class="dim">${role==='host'?'Share this code. Start when everyone is in.':'Waiting for the host to start.'} Mission ${cfg.mission}.</p>
+      <p class="dim">${role==='host'?'Share this code. Start when everyone is in.':'You are in. Waiting for the host to start.'} Mission ${cfg.mission}.</p>
       <ul class="plain racelist">${list.map(p=>`<li>${esc(p.name)}${p.host?' <span class="pill info">host</span>':''}</li>`).join('')||'<li class="dim">Connecting…</li>'}</ul>
+      <p class="dim mono" style="font-size:.6rem">${role==='host'?'Open on':'Connected through'}: ${via.map(esc).join(' · ')||'—'}</p>
       ${note?`<p class="dim" style="font-size:.84rem">${note}</p>`:''}
-      <div class="row">${role==='host'?`<button type="button" class="btn" id="rcGo" ${players.length<2?'disabled':''}>Start race</button>`:''}<button type="button" class="ghost" id="rcLeave">Leave</button></div>
-      ${role==='host'&&players.length<2?'<p class="dim" style="font-size:.8rem">At least one other player has to join.</p>':''}`);
+      <div class="row">${role==='host'?`<button type="button" class="btn" id="rcGo" ${list.length<2?'disabled':''}>Start race</button>`:''}<button type="button" class="ghost" id="rcLeave">Leave</button></div>
+      ${role==='host'&&list.length<2?'<p class="dim" style="font-size:.8rem">At least one other player has to join. Keep this window open: the room lives in your browser.</p>':''}`);
     const g=o.querySelector('#rcGo');if(g)g.onclick=start;o.querySelector('#rcLeave').onclick=()=>{leave();close();};}
 
   /* ---------- host ---------- */
-  async function host(name,mission){await lib();myName=name;myId=newId();cfg={mission,started:false,seed:0,site:'delta'};over=false;finished=null;code=newCode();
-    for(const url of relays()){const c=await connect(url,{topic:TOPIC+code+'/room',payload:JSON.stringify({gone:true}),qos:1,retain:true});if(c){cli=c;relay=url;break;}}
-    if(!cli)throw new Error('Could not reach a race relay. Check your internet connection, or try another network.');
+  async function host(name,mission){const tok=++session;myName=name;myId=newId();cfg={mission,started:false,seed:0,site:'delta'};over=false;finished=null;code=newCode();seen.clear();links=[];
+    let firstUp;const first=new Promise(r=>firstUp=r);
+    const all=openRoutes(code,'up',l=>{if(tok!==session){l.close();return;}
+      l.onMsg((box,m)=>{if(box==='up'&&role==='host'&&fresh(m))onHost(m);});l.ondown=linkState;l.onup=linkState;links.push(l);l.start();firstUp(true);
+      if(role==='host'&&!cfg.started)lobby();});
+    await Promise.race([first,all]);
+    if(tok!==session)return;
+    if(!links.length){const R=await all;const e=new Error(noRoute(R.report));e.report=R.report;throw e;}
     role='host';players=[{id:myId,name,host:true,prog:{}}];save();
-    cli.subscribe(T('up'),{qos:1});cli.on('message',(t,b)=>{if(t!==T('up'))return;let m;try{m=JSON.parse(b.toString());}catch(e){return;}onHost(m);});
-    cli.on('offline',()=>{if(role)lostLink({type:'relay'});});cli.on('connect',()=>{const el=document.getElementById('raceBoard');if(el)el.classList.remove('lost');roomInfo();});
-    roomInfo();lobby();}
-  /* the room's card, kept on the relay so that joiners can find the room and its state */
-  const roomInfo=()=>pub('room',{host:myName,mission:cfg.mission,started:cfg.started,players:players.length,v:2},{qos:1,retain:true});
-  function onHost(m){if(!m||typeof m!=='object'||!m.id)return;
+    all.then(R=>{if(tok===session){routes=R.report;if(role==='host'&&!cfg.started)lobby();}});
+    clearInterval(beat);beat=setInterval(()=>{if(role!=='host')return;if(!cfg.started)lobbyMsg();},8000);
+    lobby();}
+  function onHost(m){if(!m.id)return;
     if(m.t==='hello'){let p=players.find(x=>x.id===m.id)||players.find(x=>x.name===m.name&&!x.host&&(x.gone||cfg.started));
-      if(cfg.started&&!p){send(m.id,{t:'refused',why:'This race has already started.'});return;}
-      if(!p&&players.length>=MAX){send(m.id,{t:'refused',why:'The room is full.'});return;}
+      if(cfg.started&&!p){send(m.id,{t:'refused',why:'This race has already started. Ask the host to open a new room.'});return;}
+      if(!p&&players.filter(x=>!x.gone).length>=MAX){send(m.id,{t:'refused',why:'The room is full (six players).'});return;}
       if(p){p.id=m.id;p.gone=false;}else{let n=esc(m.name).slice(0,18)||'Player';while(players.some(x=>x.name===n))n=n.slice(0,15)+' '+(players.length+1);p={id:m.id,name:n,prog:{}};players.push(p);}
-      p.seen=Date.now();send(m.id,{t:'welcome',name:p.name,code,cfg,started:cfg.started,elapsed:cfg.started?(Date.now()-t0)/1000:0});roomInfo();publish();lobbyIfWaiting();return;}
+      p.seen=Date.now();send(m.id,{t:'welcome',name:p.name,code,cfg,started:cfg.started,elapsed:cfg.started?(Date.now()-t0)/1000:0});
+      if(cfg.started)publish(true);else{lobby();lobbyMsg();}return;}
     const p=players.find(x=>x.id===m.id);if(!p)return;p.seen=Date.now();
-    if(m.t==='left'){p.gone=true;if(!cfg.started)players=players.filter(x=>x!==p);roomInfo();publish();lobbyIfWaiting();return;}
+    if(m.t==='left'){p.gone=true;if(!cfg.started){players=players.filter(x=>x!==p);lobby();lobbyMsg();}else publish(true);return;}
     if(m.t==='prog'){p.gone=false;p.prog=m.p||{};publish();}}
-  function lobbyIfWaiting(){if(role==='host'&&!cfg.started)lobby();everyone({t:'lobby',players:players.filter(p=>!p.gone).map(p=>({name:p.name,host:!!p.host})),cfg});}
-  function start(){if(role!=='host'||players.filter(p=>!p.gone).length<2)return;cfg.started=true;cfg.seed=(Math.random()*2**31)|0;cfg.site=SITES[cfg.seed%3];save();
-    everyone({t:'start',cfg});roomInfo();begin();}
-  /* the host builds the leaderboard from everyone's latest progress and sends it out */
-  function publish(){if(role!=='host')return;players[0].prog=local();
+  const lobbyMsg=()=>everyone({t:'lobby',players:players.filter(p=>!p.gone).map(p=>({name:p.name,host:!!p.host})),cfg});
+  function start(){if(role!=='host'||players.filter(p=>!p.gone).length<2)return;players=players.filter(p=>!p.gone);cfg.started=true;cfg.seed=(Math.random()*2**31)|0;cfg.site=SITES[cfg.seed%3];save();
+    everyone({t:'start',cfg});begin();}
+  /* the host builds the leaderboard from everyone's latest progress and sends it out (at most every 2 s) */
+  function publish(now){if(role!=='host')return;players[0].prog=local();
     players.forEach(p=>{if(!p.host&&cfg.started&&p.seen&&Date.now()-p.seen>30000)p.gone=true;});
-    board=players.map(p=>({name:p.name,host:!!p.host,gone:!!p.gone,...p.prog}));
-    over=cfg.started&&board.every(r=>r.done||r.gone)&&board.some(r=>r.done);
-    everyone({t:'board',rows:board,over});drawBoard();if(over)results();}
+    const before=over;board=players.map(p=>({name:p.name,host:!!p.host,gone:!!p.gone,...p.prog}));
+    over=cfg.started&&board.every(r=>r.done||r.gone)&&board.some(r=>r.done);drawBoard();if(over)results();
+    const go=()=>{lastSent=Date.now();sendT=null;everyone({t:'board',rows:board,over});};
+    if(now||over!==before||Date.now()-lastSent>2000){clearTimeout(sendT);go();}else if(!sendT)sendT=setTimeout(go,2000-(Date.now()-lastSent));}
 
   /* ---------- guest ---------- */
-  async function join(c,name){await lib();myName=name;code=c;over=false;finished=null;myId=newId();let room=null;
-    for(const url of relays()){const k=await connect(url,{topic:TOPIC+c+'/up',payload:JSON.stringify({t:'left',id:myId}),qos:1,retain:false});if(!k)continue;
-      cli=k;relay=url;cli.subscribe([T('room'),T('down')],{qos:1});room=await await1(T('room'),m=>true,3500);
-      if(room&&!room.gone)break;try{cli.end(true);}catch(e){}cli=null;room=null;}
-    if(!cli)throw new Error(relays().length&&!room?'No room with that code. Check the code, and that the host still has the race window open.':'Could not reach a race relay.');
-    cli.on('message',(t,b)=>{let m;try{m=b.length?JSON.parse(b.toString()):{gone:true};}catch(e){return;}
-      if(t===T('room')){if(m.gone&&role)lostLink({type:'host-left'});return;}if(t!==T('down'))return;if(m.to&&m.to!==myId)return;onGuest(m);});
-    cli.on('offline',()=>{if(role)lostLink({type:'relay'});});
-    cli.on('connect',()=>{if(role){pub('up',{t:'hello',id:myId,name:myName});const el=document.getElementById('raceBoard');if(el)el.classList.remove('lost');}});
-    pub('up',{t:'hello',id:myId,name});
-    const w=await await1(T('down'),m=>m.to===myId&&(m.t==='welcome'||m.t==='refused'),10000);
-    if(!w){try{cli.end(true);}catch(e){}cli=null;throw new Error('The room exists but the host did not answer. Ask the host to keep the race window open, then try again.');}
-    if(w.t==='refused'){try{cli.end(true);}catch(e){}cli=null;throw new Error(w.why);}
-    role='guest';myName=w.name;cfg=w.cfg;save();
-    if(w.started){t0=Date.now()-w.elapsed*1000;startTick();drawBoard();close();}else lobby();}
-  function onGuest(m){if(!m||typeof m!=='object')return;
+  async function join(c,name){const tok=++session;myName=name;code=c;over=false;finished=null;myId=newId();seen.clear();links=[];
+    const hello={t:'hello',id:myId,name,mid:newId()},opened=[];let report=[];
+    const w=await new Promise(done=>{let fin=false;const end=v=>{if(!fin){fin=true;done(v);}};
+      openRoutes(c,'down',l=>{if(fin||tok!==session){l.close();return;}opened.push(l);
+        l.onMsg((box,m)=>{if(box==='down'&&m&&m.to===myId&&(m.t==='welcome'||m.t==='refused'))end({m,l});});l.pub('up',hello);l.start();})
+        .then(R=>{report=R.report;if(!opened.length)end({none:true});});
+      setTimeout(()=>end(null),12000);});
+    opened.forEach(l=>{if(!w||l!==w.l)l.close();});
+    if(tok!==session){if(w&&w.l)w.l.close();return;}
+    if(!w||w.none){const e=new Error(w&&w.none?noRoute(report):`No answer from room ${c}. Check the code, and that the host still has the race window open. The host and you need one route in common:`);e.report=report;throw e;}
+    if(w.m.t==='refused'){w.l.close();throw new Error(w.m.why);}
+    links=[w.l];routes=report;role='guest';myName=w.m.name;cfg=w.m.cfg;lastDown=Date.now();fresh(w.m);save();
+    w.l.onMsg((box,m)=>{if(box==='down'&&fresh(m)){lastDown=Date.now();if(document.getElementById('raceBoard')&&!viaOK())linkState();onGuest(m);}});
+    w.l.ondown=linkState;w.l.onup=()=>{linkState();w.l.pub('up',{t:'hello',id:myId,name:myName,mid:newId()});};
+    clearInterval(beat);beat=setInterval(()=>{if(role!=='guest')return;const q=(Date.now()-lastDown)/1000;
+      if(q>30){const el=document.getElementById('raceBoard');if(el)el.classList.add('lost');if(cfg.started)drawBoard(`No word from the host for ${Math.round(q)} s. The host may have closed the game.`);}},5000);
+    if(w.m.started){t0=Date.now()-w.m.elapsed*1000;startTick();drawBoard();close();}else lobby();}
+  function onGuest(m){if(m.to&&m.to!==myId)return;
     if(m.t==='lobby'){cfg=m.cfg;board=m.players;if(!cfg.started)lobby();}
-    if(m.t==='start'){cfg=m.cfg;save();begin();}
-    if(m.t==='board'){board=m.rows||[];over=!!m.over;drawBoard();if(over)results();}
+    if(m.t==='start'&&!cfg.started){cfg=m.cfg;save();begin();}
+    if(m.t==='board'){board=m.rows||[];over=!!m.over;const el=document.getElementById('raceBoard');if(el)el.classList.remove('lost');drawBoard();if(over)results();}
     if(m.t==='bye')lostLink({type:'host-left'});}
 
   /* ---------- the race itself ---------- */
   function begin(){close();let n=3;const o=document.createElement('div');o.className='racecount';document.body.appendChild(o);
     const step=()=>{o.textContent=n>0?n:'GO';if(n<0){o.remove();t0=Date.now();save();startTick();if(window.__raceStart)window.__raceStart(cfg.mission,cfg.seed,cfg.site,myName);return;}n--;setTimeout(step,800);};step();}
   function local(){const p=window.__raceProgress?window.__raceProgress():{};return Object.assign({},p,{t:t0?(Date.now()-t0)/1000:0},finished||{});}
-  function startTick(){clearInterval(tick);tick=setInterval(report,4000);report();}
-  function report(){if(!role||!cfg.started)return;if(role==='host')publish();else pub('up',{t:'prog',id:myId,p:local()});drawBoard();}
+  function startTick(){clearInterval(tick);tick=setInterval(report,5000);links.forEach(l=>l.rate(2500));report();}
+  function report(){if(!role||!cfg.started)return;if(role==='host')publish();else out('up',{t:'prog',id:myId,p:local()});drawBoard();}
   function stage(){const p=window.__raceProgress?window.__raceProgress():{};if(p.stage!==lastStage){lastStage=p.stage;report();}}
   function finish(r){if(!role||!cfg.started||finished)return;finished={done:true,final:r.score,cls:r.cls,failed:!!r.failed,t:(Date.now()-t0)/1000};report();}
   function lostLink(e){const el=document.getElementById('raceBoard');if(el)el.classList.add('lost');
@@ -143,13 +213,15 @@ const Race=(()=>{
       <p class="dim" style="font-size:.84rem">Ranking: final score, then time. A failed mission keeps the score it earned.</p>
       <div class="row"><button type="button" class="ghost" id="rcX">Close</button><button type="button" class="btn" id="rcL">Leave race</button></div>`);
     o.querySelector('#rcX').onclick=close;o.querySelector('#rcL').onclick=()=>{leave();close();};}
-  function leave(){clearInterval(tick);try{if(cli){if(role==='host'){everyone({t:'bye'});pub('room',null,{qos:1,retain:true});}else if(role)pub('up',{t:'left',id:myId});const c=cli;setTimeout(()=>{try{c.end();}catch(e){}},400);}}catch(e){}
-    cli=null;role=null;players=[];board=[];cfg={mission:1,started:false,seed:0,site:'delta'};finished=null;over=false;
+  function leave(){session++;clearInterval(tick);clearInterval(beat);clearTimeout(sendT);
+    try{if(role==='host')everyone({t:'bye'});else if(role)out('up',{t:'left',id:myId});}catch(e){}
+    const L=links;setTimeout(()=>L.forEach(l=>l.close()),500);
+    links=[];role=null;players=[];board=[];cfg={mission:1,started:false,seed:0,site:'delta'};finished=null;over=false;
     try{sessionStorage.removeItem('mcb-race');}catch(e){}const el=document.getElementById('raceBoard');if(el)el.remove();document.body.classList.remove('racing');}
   /* after a page refresh a guest can rejoin the same race (the host keeps its place on the board) */
   function pending(){try{return JSON.parse(sessionStorage.getItem('mcb-race'));}catch(e){return null;}}
   async function rejoin(){const p=pending();if(!p||p.role!=='guest')return false;await join(p.code,p.name);return true;}
-  addEventListener('pagehide',()=>{try{if(cli&&role==='guest')pub('up',{t:'left',id:myId});}catch(e){}});
-  return {open,host,join,leave,finish,stage,results,rejoin,pending,get relay(){return relay;},active:()=>!!role&&cfg.started,inRoom:()=>!!role,get code(){return code;},get board(){return board;},get role(){return role;},get cfg(){return cfg;}};
+  addEventListener('pagehide',()=>{try{if(role==='guest'){out('up',{t:'left',id:myId});links.forEach(l=>l.close());}}catch(e){}});
+  return {open,host,join,leave,finish,stage,results,rejoin,pending,check,get relay(){return links.map(l=>l.label).join(',');},get routes(){return routes;},active:()=>!!role&&cfg.started,inRoom:()=>!!role,get code(){return code;},get board(){return board;},get role(){return role;},get cfg(){return cfg;}};
 })();
 window.Race=Race;
