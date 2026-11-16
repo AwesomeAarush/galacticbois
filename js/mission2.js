@@ -14,6 +14,8 @@ function installM2(){
   const blindLanding=M=>M.fromM1&&!(M.survey||[]).includes('cam');
   /* a new rover mission: a fresh seed for the ten rock formations, kept until the mission is restarted */
   const seedOf=M=>{if(!M.seed)M.seed=(Math.random()*2**31)|0;return M.seed;};
+  /* what Mission 1's survey gives this expedition (reconOf in game.js); only data that reached Earth counts */
+  const reconM=M=>reconOf(M.fromM1?M.survey:null);
 
   VIEW.m2brief=()=>{const M=m2(),surveyed=M.fromM1;seedOf(M);
     main.innerHTML=head(1,'Mission briefing','ASEA Mission Control')+say('reyes',surveyed?`You chose ${LSITE[M.site][1]}. The crew is down and the rover is fueled. Go and see if you were right.`:'No orbital survey on file, so the crew landed blind. Pick a site and make it work.')+`
@@ -21,7 +23,11 @@ function installM2(){
       <div class="steps">${['Build the rover','Explore Jezero','Analyze and sample','Run the outpost'].map((t,i)=>`<div><b>${i+1}</b><span>${t}</span></div>`).join('')}</div></section>
     <section class="grid g3"><div class="panel stat"><p class="kicker">Landing site ${Help.q('landing')}</p><b class="num">${LSITE[M.site][1]}</b>${surveyed?'':`<div class="choices three">${Object.keys(LSITE).map(s=>`<button type="button" class="opt" data-ls="${s}" aria-pressed="${M.site===s}"><b>${LSITE[s][0]}</b></button>`).join('')}</div>`}</div>
       <div class="panel stat"><p class="kicker">Terrain ${Help.q('mobility')}</p><b class="num">${{delta:'Boulders under a layered scarp',floor:'Flat and open, long drives',rim:'Steep pale slopes'}[M.site]}</b></div>
-      <div class="panel stat"><p class="kicker">Rock formations ${Help.q('geology')}</p><b class="num">10 located from orbit</b></div></section>
+      <div class="panel stat"><p class="kicker">Rock formations ${Help.q('geology')}</p><b class="num">${reconM(M).formsText}</b></div></section>
+    <section class="panel"><p class="kicker">Orbital data from Mission 1 ${Help.q('recon')}</p><div class="tw"><table>
+      ${[['High-resolution images','cam','Formations located to a few metres · hazards and terrain in detail'],['Context images','ctx','Formations located to about 60 m · terrain coarsely'],['Mineral spectra','spec','Likely rock type of each located formation'],['Altimeter','alt','Terrain relief'],['Sounding radar','radar','Buried delta layers']].map(r=>{const on=reconM(M).sv.includes(r[1]);return `<tr><th>${r[0]}</th><td>${on?`<span class="pill go">On file</span> ${r[2]}`:'<span class="dim">Not on file</span>'}</td></tr>`;}).join('')}
+      <tr><th>Terrain</th><td>${reconM(M).terrainText}</td></tr></table></div>
+      ${M.fromM1?'':'<p class="dim" style="font-size:.84rem">No Mission 1 survey on file. Fly Mission 1 and downlink Jezero data to land with a map.</p>'}</section>
     ${blindLanding(M)?`<section class="alertbar">LANDING HAZARDS UNKNOWN AT 1 M SCALE · No high-resolution images of the site were taken</section>`:''}
     <section class="panel"><p class="kicker">What the mission has to measure</p><div class="objm">${RK.OBJ.map(o=>`<div class="objrow"><div class="row between"><b>${o.q}</b><span class="pill ${o.main?'info':'off'}">${o.main?'Primary':'Extra science'}</span></div><p class="need">${o.need}</p></div>`).join('')}</div></section>
     ${navRow(false,'m2prep','Accept mission')}`;
@@ -33,6 +39,7 @@ function installM2(){
   const PICK={wheel:'wheel',wsize:'wheel',susp:'susp',clear:'susp',dims:'body',chassis:'body',power:'power',battery:'power',arm:'arm',drill:'drill',store:'store',comms:'comms',dstore:'comms',backup:'backup',therm:'body',dust:'dust',shield:'shield',paint:'body',mark:'look',insig:'look'};
   VIEW.m2prep=()=>{const M=m2(),c=cfgOf(M);M.tab=M.tab||'mobility';M.cmp=M.cmp||[];const sv=M.survey||[];
     main.innerHTML=head(2,'Rover preparation','Surface Systems Bay','Build a rover for your landing site. Drag the model to turn it; click a part to open it.')+`
+    <section class="panel rvbudget" id="rvBudget" aria-live="polite"></section>
     <section class="bay"><div class="panel baysee"><div class="row between"><p class="kicker">Rover · ${S.name}</p><div class="row"><button type="button" class="ghost sm" id="zOut" aria-label="Zoom out">−</button><button type="button" class="ghost sm" id="zIn" aria-label="Zoom in">+</button><button type="button" class="ghost sm" id="zRe">Reset view</button></div></div>
         <div class="cvwrap"><canvas id="rvsch"></canvas></div><p class="mono dim" id="rvPick" style="font-size:.6rem">Drag to turn · scroll or pinch to zoom · click a part</p><div id="rvSpec"></div></div>
       <div class="baycfg"><div class="tabs" role="tablist">${TABS.map(t=>`<button type="button" role="tab" class="tab" data-tab="${t}" aria-selected="${M.tab===t}">${TABL[t]||RK.CAT[t].label}</button>`).join('')}</div>
@@ -44,6 +51,20 @@ function installM2(){
       const el=main.querySelector(`[data-pk="${pk.key}"]`);if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});}});
     if(view){$('zIn').onclick=()=>view.zoomBy(1.2);$('zOut').onclick=()=>view.zoomBy(1/1.2);$('zRe').onclick=()=>{view.zoom=1;view.yaw=.9;view.pitch=.32;view.highlight(null);};}
     else{['zIn','zOut','zRe'].forEach(id=>$(id).hidden=true);const cc=cv('rvsch',420,250);cc.ctx.fillStyle='#a39686';cc.ctx.font='12px "Martian Mono",monospace';cc.ctx.fillText('3D view unavailable on this device',90,125);}
+    /* worked formula: driving range on one battery charge, from the live configuration */
+    const rangeFx=()=>({id:'range',title:'How far can one battery charge drive?',
+      ask:'The battery is the rover’s fuel tank. Work out how far a full charge goes, then compare it with the drive at your landing site.',
+      formula:'d = E ÷ e × 100',
+      vars:[{k:'E',sym:'E',name:'Battery energy',unit:'Wh',meaning:'Energy stored in the battery you picked (watt-hours).',effect:'Range rises in proportion.'},
+        {k:'e',sym:'e',name:'Driving energy',unit:'Wh per 100 m',dec:1,meaning:'Energy to drive 100 m on firm, level ground. Shown as “Drive energy” under the rover. Mass, wheels and suspension set it.',effect:'Range falls. Sand and slopes raise it.'}],
+      out:{sym:'d',name:'Range on one charge',unit:'m'},
+      tpl:['d =','E','÷','e','× 100'],
+      get:()=>{const s=RK.spec(c);return {v:{E:Math.round(s.batWh),e:+s.drive.toFixed(1)},ctx:{run:s.run,sandE:s.sandE,drive:SURV[M.site]?SURV[M.site].drive:'?'}};},
+      calc:v=>v.E/v.e*100,
+      steps:v=>[`${f0(v.E)} ÷ ${v.e} = ${(v.E/v.e).toFixed(1)} stretches of 100 m`,`${(v.E/v.e).toFixed(1)} × 100 = ${f0(v.E/v.e*100)} m`],
+      meaning:(r,v,x)=>`Driving and nothing else, a full charge covers about <b>${f0(r)} m</b> (${(r/1000).toFixed(1)} km) on firm, level ground. From your base to the layered scarp is ${x.drive} each way. Sand raises the energy per metre about ×${x.sandE.toFixed(1)} on this rover, climbing adds more, and the rover’s standing load of ${f0(x.run)} W (computer, heaters, radio) drains the battery even while parked. Sunlight recharges it during the day.`,
+      hints:['E is the battery capacity on this tab. e is “Drive energy” in the numbers under the rover picture.','Divide E by e: that is how many 100 m stretches you can drive. Multiply by 100 for metres.'],
+      ansWhy:(u,r,v)=>nearV(u,v.E/v.e,.03)?'That is the number of 100 m stretches. Multiply by 100 for metres.':nearV(u,v.E*v.e,.05)?'Divide the energy you have by the energy each 100 m costs; do not multiply.':''});
     const fmt=(v,d=0)=>v.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});
     /* the spec panel; with a proposed change it shows the difference next to each number */
     const spec=(alt)=>{const s=RK.spec(c),p=alt?RK.spec(alt):null,dl=(k,dec=0,unit='',better=1)=>{if(!p)return '';const d=p[k]-s[k];if(Math.abs(d)<Math.pow(10,-dec)/2)return '';const good=d*better>0;return ` <i class="dlt ${good?'up':'down'}">${d>0?'+':''}${fmt(d,dec)}${unit}</i>`;};
@@ -69,7 +90,16 @@ function installM2(){
         ${ck.filter(x=>!x.ok&&!x.hard).map(x=>`<p class="dim" style="font-size:.82rem"><span class="pill warn">Caution</span> ${x.n}: ${x.d}</p>`).join('')}`;
       if(!alt){const nb=$('next');if(nb){nb.disabled=bad.length>0;const nt=main.querySelector('.nav .note');}}};
     const caps=()=>{const s=RK.spec(c);$('capList').innerHTML=RK.OBJ.map(o=>{const L=RK.capLines(s,o.id);return `<div class="objrow"><div class="row between"><b>${o.q}</b><span class="pill ${o.main?'info':'off'}">${o.main?'Primary':'Extra'}</span></div><p class="need">${o.need}</p><ul class="cov plain">${L.length?L.map(t=>`<li>${t}</li>`).join(''):'<li class="dim">Nothing fitted does this.</li>'}</ul></div>`;}).join('');};
-    const apply=()=>{CAMP.rover=c;saveCamp();saveGame();if(view)view.set(modelOpts(c));spec();caps();drawTab();};
+    /* mass and budget at a glance: stacked bars by subsystem, from the same calculator (RK.spec) as everything else */
+    const SUBS=[['body','Chassis and body','#7d7268'],['mobility','Wheels and suspension','#c98a5a'],['power','Power','#f2b84f'],['arm','Arm and sampling','#86c994'],['comms','Radio and data','#8fc8da'],['protect','Protection','#b49ad6'],['inst','Instruments','#ea6f3c']];
+    const budget=()=>{const s=RK.spec(c),blk=(title,key,tot,lim,fv,help)=>{const over=tot>lim,scale=Math.max(tot,lim),left=lim-tot;
+        return `<div class="bgt ${over?'over':''}"><div class="row between"><p class="kicker">${title} ${Help.q(help)}</p><b class="num">${fv(tot)} <span class="dim">of ${fv(lim)}</span></b></div>
+          <div class="bgtbar" role="img" aria-label="${title}: ${fv(tot)} of ${fv(lim)}">${SUBS.map(([k,l,col])=>{const v=s.by[k][key];return v>0?`<i style="width:${v/scale*100}%;background:${col}" title="${l}: ${fv(v)}"></i>`:'';}).join('')}${over?'':`<i class="free" style="width:${left/scale*100}%"></i>`}<b class="lim" style="left:${lim/scale*100}%"></b></div>
+          <div class="row between bgtsum"><span class="${over?'bad':left<lim*.08?'warn':'ok'}">${over?`Over by ${fv(-left)}`:`${fv(left)} left`}</span><span class="dim num">${Math.round(tot/lim*100)}% used</span></div></div>`;};
+      $('rvBudget').innerHTML=`<div class="bgtwrap">${blk('Mass','mass',s.mass,s.limit,v=>`${f0(v)} kg`,'rmass')}${blk('Budget','cost',s.cost,s.budget,v=>`$${v.toFixed(1)}M`,'rbudget')}</div>
+        <div class="bgtleg">${SUBS.map(([k,l,col])=>`<span><i style="background:${col}"></i>${l} <b class="num">${f0(s.by[k].mass)} kg · $${s.by[k].cost.toFixed(1)}M</b></span>`).join('')}</div>`;
+      chrome();};
+    const apply=()=>{CAMP.rover=c;saveCamp();saveGame();if(view)view.set(modelOpts(c));spec();caps();drawTab();budget();};
     function drawTab(){main.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===M.tab));const T=M.tab,el=$('tabBody');
       if(T==='inst'){const s=RK.spec(c);
         el.innerHTML=`<div class="row between"><p class="kicker">Instruments ${Help.q('rpayload')}</p><span class="dim" style="font-size:.84rem">${c.inst.length} fitted</span></div>`+
@@ -90,16 +120,21 @@ function installM2(){
         el.querySelectorAll('[data-f]').forEach(b=>{const f=b.dataset.f,v=b.dataset.v,val=f==='store'?+v:v;
           b.onclick=()=>{c[f]=val;SFX.toggle(true);if(view)view.highlight(PICK[f]);apply();};
           b.onmouseenter=()=>{if(view)view.highlight(PICK[f]);if(String(c[f])!==String(v))spec(Object.assign({},c,{[f]:val}));};b.onmouseleave=()=>spec();
-          b.onfocus=b.onmouseenter;b.onblur=b.onmouseleave;});}}
+          b.onfocus=b.onmouseenter;b.onblur=b.onmouseleave;});
+        if(T==='power'){el.insertAdjacentHTML('beforeend',FX.card(rangeFx()));FX.bind(el);}}}
     main.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{M.tab=b.dataset.tab;drawTab();});
-    spec();caps();drawTab();
+    spec();caps();drawTab();budget();
     bindNav('m2brief','rover');};
 
   VIEW.rover=()=>{const M=m2(),my=RUN,c=cfgOf(M),sp=RK.spec(c),bl=blindLanding(M);
     main.innerHTML=head(3,'Surface expedition','Jezero Crater, Mars')+`<section class="panel task slim"><p class="kicker">Task · ${TASK}</p></section><div id="rvhost"></div>`;
     const snap=Models.snapshot&&Models.snapshot('rover',modelOpts(c),{w:256,h:256,top:true});
-    Rover.start({root:$('rvhost'),site:M.site,seed:seedOf(M),spec:sp,sol:1,sprite:snap,blind:bl,relayM1:!!M.fromM1,resume:M.rv||null,
+    Rover.start({root:$('rvhost'),site:M.site,seed:seedOf(M),spec:sp,sol:1,sprite:snap,blind:bl,relayM1:!!M.fromM1,recon:reconM(M),resume:M.rv||null,
       save:st=>{M.rv=st;saveGame();}}).then(async res=>{if(my!==RUN)return;M.exp=res;M.rv=null;
+      /* a catastrophic failure ends surface operations: the samples stay in the rover and the mission is over */
+      if(res.broken){M.exp.returned=[];M.failed=true;saveGame();
+        await ask({kicker:'Surface operations',cls:'alert',title:'Rover lost',body:`<p>${res.broken.why}</p><div class="readouts"><div><span>Time</span><b class="num">${res.broken.at} LMST</b></div><div><span>Condition</span><b class="num">${res.broken.cond}%</b></div><div><span>Distance from base</span><b class="num">${f0(Math.hypot(res.broken.x-(Rover.SITES[M.site]||Rover.SITES.delta).base[0],res.broken.y-(Rover.SITES[M.site]||Rover.SITES.delta).base[1]))} m</b></div><div><span>Samples aboard</span><b class="num">${res.samples.length}</b></div></div><p class="dim">The rover cannot be recovered. Without it the expedition ends here.</p>`,choices:[{label:'Go to the debrief'}]});
+        if(my!==RUN)return;return go('m2debrief');}
       if(res.stranded){await tell('Rover lost','Stranded','<p>The battery ran out before base. The samples stay with the rover.</p>','Continue');M.exp.returned=[];}else M.exp.returned=res.samples;
       saveGame();go('outpost');});};
 
@@ -148,10 +183,11 @@ function installM2(){
   function score2(){const M=m2(),e=M.exp||{samples:[],scans:[],main:[],opt:[],battery:0,cond:0,photos:0,found:0,dist:0,explored:0},o=M.out||outNew(M),ret=e.returned||[];
     const X=e.extras||{},rock=ret.filter(s=>s.kind!=='soil'),sci=clamp(rock.length*11*(1)+ret.filter(s=>s.kind==='soil').length*3-rock.filter(s=>s.kind==='powder').length*2+rock.filter(s=>s.right).length*6+new Set(rock.map(s=>s.truth)).size*5+e.scans.length*4+e.photos*2+o.lab*5+(X.gpr?6:0)+(X.wx?4:0)+(X.dose?4:0)+(X.lab?6:0)+(X.micro?Math.min(6,X.micro*2):0)+(X.atmo?1:0),0,100);
     const main_=e.main.length?e.main.filter(x=>x[1]).length/e.main.length*100:0,opt=e.opt.length?e.opt.filter(x=>x[1]).length/e.opt.length*100:0;
-    const obj=main_*.8+opt*.2,res=e.stranded?0:clamp(e.battery*1.6,0,60)+e.cond*.4,net=(o.water-o.w0)+(o.o2-o.o0);
-    const outp=clamp(50+net*1.2,0,100)*(o.crew<100?.6:1)*(o.equip<100?.85:1),total=.4*sci+.25*obj+.15*res+.2*outp;
-    const cls=total>=85?'Outstanding expedition':total>=70?'Expedition success':total>=50?'Partial success':'Expedition fell short';
-    return {sci,obj,res,outp,total,cls,sustain:o.water>=o.w0&&o.o2>=o.o0,water:ret.some(s=>CLSOK(s))};}
+    const lost=!!e.broken,obj=main_*.8+opt*.2,res=e.stranded||lost?0:clamp(e.battery*1.6,0,60)+e.cond*.4,net=(o.water-o.w0)+(o.o2-o.o0);
+    /* a lost rover ends the mission before the outpost runs, so the outpost earns nothing */
+    const outp=lost?0:clamp(50+net*1.2,0,100)*(o.crew<100?.6:1)*(o.equip<100?.85:1),total=.4*sci+.25*obj+.15*res+.2*outp;
+    const cls=lost?'Mission failed: rover lost':total>=85?'Outstanding expedition':total>=70?'Expedition success':total>=50?'Partial success':'Expedition fell short';
+    return {sci,obj,res,outp,total,cls,lost,sustain:!lost&&o.water>=o.w0&&o.o2>=o.o0,water:ret.some(s=>CLSOK(s))};}
   const CLSOK=s=>s.kind!=='soil'&&['mud','sand','carb','sulf'].includes(s.truth)&&s.right;
 
   /* how the rover design showed up in the field: facts, not grades */
@@ -163,21 +199,22 @@ function installM2(){
     if((e.faults||[]).length)L.push(`${e.faults.length} fault${e.faults.length>1?'s':''} on the drive (rover reliability ${f1(s.rel*100)}%).`);
     return L.length?`<p class="kicker" style="margin-top:8px">Rover design in the field</p><ul class="plain">${L.map(t=>`<li>${t}</li>`).join('')}</ul>`:'';}
   VIEW.m2debrief=()=>{const M=m2(),e=M.exp||{samples:[],scans:[],main:[],opt:[],battery:0,cond:0,photos:0,found:0,dist:0,explored:0,log:[]},o=M.out||outNew(M),sc=score2(),ret=e.returned||[];
-    if(S.race&&window.Race)Race.finish({score:Math.round(sc.total),cls:sc.cls,failed:false});
+    if(S.race&&window.Race)Race.finish({score:Math.round(sc.total),cls:sc.cls,failed:sc.lost});
     if(!CAMP.m2||sc.total>=(CAMP.m2.score||0)){CAMP.m2={score:Math.round(sc.total),cls:sc.cls};saveCamp();}
     const obj=x=>`<div class="obj ${x[1]?'done':''}"><i></i><span>${x[0]}</span></div>`;
     main.innerHTML=head(5,'Debrief','ASEA Science Operations Center')+`
     <section class="panel"><div class="score"><div class="S num">${Math.round(sc.total)}</div><div class="grid" style="gap:8px"><h3>${sc.cls}</h3>
-      <div class="row"><span class="pill ${sc.water?'go':'warn'}">${sc.water?'Water-formed rock returned and identified':'Task open: no identified water-formed sample'}</span><span class="pill ${sc.sustain?'go':'warn'}">${sc.sustain?'Outpost sustains itself':'Outpost runs a deficit'}</span></div>
+      ${sc.lost?`<div class="alertbar" style="border-color:var(--bad);color:var(--bad)">MISSION FAILED · ROVER LOST AT ${e.broken.at} LMST · ${e.broken.why}</div>`:''}
+      <div class="row"><span class="pill ${sc.water?'go':'warn'}">${sc.water?'Water-formed rock returned and identified':'Task open: no identified water-formed sample'}</span><span class="pill ${sc.sustain?'go':'warn'}">${sc.lost?'Outpost never ran':sc.sustain?'Outpost sustains itself':'Outpost runs a deficit'}</span></div>
       <p class="num" style="font-size:.72rem">S = 0.40×${f0(sc.sci)} science + 0.25×${f0(sc.obj)} objectives + 0.15×${f0(sc.res)} rover + 0.20×${f0(sc.outp)} outpost</p></div></div></section>
     <section class="grid g2"><div class="panel"><p class="kicker">Expedition</p><div class="readouts">
         <div><span>Distance</span><b class="num">${f0(e.dist)} m</b></div><div><span>Area mapped</span><b class="num">${f0(e.explored*100)}%</b></div><div><span>Formations found</span><b class="num">${e.found}</b></div><div><span>Photographs</span><b class="num">${e.photos}</b></div>
-        <div><span>Battery at dock</span><b class="num">${e.stranded?'0':f0(e.battery)}%</b></div><div><span>Rover condition</span><b class="num">${f0(e.cond)}%</b></div><div><span>Data sent home</span><b class="num">${f1((e.sent||0)/1000)} GB</b></div><div><span>Faults</span><b class="num">${(e.faults||[]).length}</b></div></div>
+        <div><span>Battery at dock</span><b class="num">${e.broken?'never docked':e.stranded?'0%':f0(e.battery)+'%'}</b></div><div><span>Rover condition</span><b class="num">${e.broken?`lost · was ${e.broken.cond}%`:f0(e.cond)+'%'}</b></div><div><span>Data sent home</span><b class="num">${f1((e.sent||0)/1000)} GB</b></div><div><span>Faults</span><b class="num">${(e.faults||[]).length}</b></div></div>
         ${roverNote(M)}
         <p class="kicker" style="margin-top:8px">Objectives</p>${e.main.map(obj).join('')}<p class="kicker" style="margin:6px 0 2px;color:var(--dim)">Optional</p>${e.opt.map(obj).join('')}</div>
       <div class="panel"><p class="kicker">Samples returned · ${ret.length}</p><div class="tw"><table>${ret.map(s=>`<tr><td class="num">${s.id}</td><td>${s.site}<div class="dim" style="font-size:.76rem">${s.time} · ${s.grid} · ${s.kind||'core'}${s.labText?' · onboard lab: '+s.labText:''}</div></td><td>${s.cls}<div style="font-size:.76rem;color:${s.right?'var(--good)':'var(--amber)'}">Lab: ${Rover.CLS[s.truth].label}</div></td></tr>`).join('')||'<tr><td class="dim">None.</td></tr>'}</table></div>
         <p class="kicker" style="margin-top:8px">Laser analyses · simulated values, weight %</p><div class="tw"><table>${e.scans.map(a=>`<tr><td>${a.name}</td><td class="num">${Object.keys(a.v).map(k=>`${k} ${f0(a.v[k])}`).join(' · ')}</td></tr>`).join('')||'<tr><td class="dim">None.</td></tr>'}</table></div>
-        <p class="kicker" style="margin-top:8px">Outpost after ${o.N} sols</p><div class="readouts"><div><span>Water</span><b class="num">${f0(o.water)}% (${o.water>=o.w0?'+':''}${f0(o.water-o.w0)})</b></div><div><span>Oxygen</span><b class="num">${f0(o.o2)}% (${o.o2>=o.o0?'+':''}${f0(o.o2-o.o0)})</b></div><div><span>Lab analyses</span><b class="num">${o.lab}</b></div></div></div></section>
+        <p class="kicker" style="margin-top:8px">${sc.lost?'Outpost · not run (rover lost)':`Outpost after ${o.N} sols`}</p><div class="readouts"><div><span>Water</span><b class="num">${f0(o.water)}% (${o.water>=o.w0?'+':''}${f0(o.water-o.w0)})</b></div><div><span>Oxygen</span><b class="num">${f0(o.o2)}% (${o.o2>=o.o0?'+':''}${f0(o.o2-o.o0)})</b></div><div><span>Lab analyses</span><b class="num">${o.lab}</b></div></div></div></section>
     <section class="panel"><div class="two"><div class="sim"><p class="kicker" style="color:var(--rust)">In this game</p><p style="font-size:.9rem">The terrain, rock positions and chemistry values are simulated. Rock types and where they sit follow published descriptions of Jezero.</p></div>
       <div class="ref"><p class="kicker" style="color:var(--ice)">What NASA’s Perseverance found</p><p style="font-size:.9rem">The crater floor is igneous rock, some of it rich in olivine and later altered by water. The delta front is sedimentary sandstone and mudstone, with sulfate minerals. Rock near the rim is rich in carbonate. Its MOXIE experiment made about 122 g of oxygen from Martian air.</p></div></div></section>
     <div class="nav"><button class="ghost" id="again">Main menu</button><button class="btn" id="redo">Fly it again</button></div>`;

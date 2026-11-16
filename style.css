@@ -807,3 +807,65 @@ body.racing main{padding-bottom:70px}
 .routes{display:grid;gap:3px;margin:4px 0 8px;font-size:.84rem}
 .routes li b{display:inline-block;width:1.2em;color:var(--good)}
 .routes li.no b{color:var(--bad)}
+
+/* click feedback: the clicked control grows slightly and settles back (game.js adds .pressed) */
+@keyframes press{0%{transform:scale(1)}40%{transform:scale(1.045)}100%{transform:scale(1)}}
+.pressed{animation:press .2s cubic-bezier(.3,.7,.4,1)!important}
+.btn:active{transform:none}
+
+/* Sticky panels: ".panel{position:relative}" above overrode "position:sticky", and the leftover top:76px then pushed
+   the panel 76 px down, under the navigation row (the build screen's "Send to review" covered the readout). */
+.panel.sticky{position:sticky}
+@media (max-width:820px){.panel.sticky{position:static}}
+.nav{position:relative;z-index:2;margin-top:18px}
+.condrisk{font-size:.56rem;margin:-4px 0 6px;letter-spacing:.04em}
+
+/* rover bay: mass and budget visualizers */
+.rvbudget{margin-bottom:14px}
+.bgtwrap{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:700px){.bgtwrap{grid-template-columns:1fr}}
+.bgt .kicker{margin:0}
+.bgtbar{position:relative;display:flex;height:16px;margin:6px 0 4px;background:rgba(239,230,217,.05);border:1px solid var(--line);border-radius:2px;overflow:visible}
+.bgtbar>i{display:block;height:100%;transition:width .25s ease}
+.bgtbar>i.free{background:repeating-linear-gradient(135deg,rgba(239,230,217,.06) 0 6px,transparent 6px 12px)}
+.bgtbar>b.lim{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);transform:translateX(-1px)}
+.bgt.over .bgtbar{border-color:var(--bad)}
+.bgtsum{font:600 .66rem var(--mono);letter-spacing:.04em}
+.bgtsum .ok{color:var(--good)}.bgtsum .warn{color:var(--amber)}.bgtsum .bad{color:var(--bad)}
+.bgtleg{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:.72rem;color:var(--dim)}
+.bgtleg span{display:inline-flex;align-items:center;gap:6px}
+.bgtleg i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.bgtleg b{color:var(--text);font-weight:500}
+
+/* worked formulas (FX in equations.js) */
+details.fx{border:1px solid var(--line);border-radius:2px;background:rgba(143,200,218,.03);margin-top:10px}
+details.fx>summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:center;padding:9px 12px}
+details.fx>summary::-webkit-details-marker{display:none}
+details.fx>summary::after{content:"Open";margin-left:auto;font:600 .58rem var(--mono);letter-spacing:.08em;color:var(--ice);text-transform:uppercase}
+details.fx[open]>summary::after{content:"Close"}
+.fxtag{font:600 .56rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ice);border:1px solid rgba(143,200,218,.4);padding:2px 6px;border-radius:2px}
+.fxbody{padding:0 12px 12px}
+.fxask{margin:2px 0 4px}
+.fxf b{font-size:1.02rem}
+.fxvars{font-size:.8rem}.fxvars td{vertical-align:top}.fxvars .dim{font-size:.76rem}
+.fxsym{font:600 .9rem var(--mono);color:var(--amber);white-space:nowrap}
+.fxeq{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;font:600 .95rem var(--mono);margin:6px 0 8px}
+.fxeq>span{padding-top:7px}
+.fxbl{display:inline-flex;flex-direction:column;align-items:center;gap:2px}
+.fxbl i{font:500 .56rem var(--mono);font-style:normal;color:var(--dim);letter-spacing:.04em}
+.fxin{width:88px;padding:6px 6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);font:600 .86rem var(--mono);text-align:center;border-radius:2px}
+.fxbl.ans .fxin{width:104px;border-style:dashed}
+.fxbl.ok .fxin{border-color:var(--good)}.fxbl.bad .fxin{border-color:var(--bad)}.fxbl.empty .fxin{border-color:var(--amber)}
+.fxbtns{flex-wrap:wrap;gap:6px}
+.fxhints{font-size:.84rem;color:var(--ice);margin:8px 0 0;padding-left:1.4em}
+.fxout{margin-top:8px;font-size:.88rem}
+.fxsteps{font:500 .8rem var(--mono);padding-left:1.6em;margin:4px 0}
+.fxsteps li{margin:2px 0}
+.fxres{font:600 1rem var(--mono);color:var(--amber);margin:6px 0}
+.fxmean{border-left:2px solid var(--ice);padding:2px 0 2px 10px}
+.okt{color:var(--good)}.badt{color:var(--bad)}.warnt{color:var(--amber)}
+.fxwhy li{margin:3px 0}
+.choice[aria-pressed="true"]{border-color:var(--rust);background:rgba(234,111,60,.12);box-shadow:inset 3px 0 0 var(--rust)}
+.readouts .sym{text-transform:none;font-style:italic;letter-spacing:0}
+.fxeff{display:none;margin-top:3px}
+@media (max-width:600px){.fxvars .fxup{display:none}.fxeff{display:block}.fxvars td,.fxvars th{padding:6px 5px}.fxin{width:76px}}

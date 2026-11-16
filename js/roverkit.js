@@ -161,9 +161,15 @@ const RK=(()=>{
       pw=G('power','power'),bt=G('power','battery'),ar=G('arm','arm'),dr=c.arm==='none'?null:G('arm','drill'),st=G('arm','store'),
       co=G('comms','comms'),ds=G('comms','store'),bk=c.backup==='yes',th=G('protect','therm'),du=G('protect','dust'),sh=G('protect','shield');
     /* mass and cost */
-    let mass=BUS.mass,cost=BUS.cost;const add=o=>{mass+=o.mass||0;cost+=o.cost||0;};
-    mass+=wh.mass*ws.k;cost+=wh.cost+ws.cost;[su,G('mobility','clear'),dm,ch,pw,bt,ar,st,co,ds,G('comms','backup'),th,du,sh].forEach(add);if(dr)add(dr);
-    for(const k of I)if(INS[k]){mass+=INS[k].mass;cost+=INS[k].cost;}
+    /* tallied by subsystem (by), so the bay can show where the mass and the money go */
+    const by={body:{mass:0,cost:0},mobility:{mass:0,cost:0},power:{mass:0,cost:0},arm:{mass:0,cost:0},comms:{mass:0,cost:0},protect:{mass:0,cost:0},inst:{mass:0,cost:0}};
+    const add=(k,o,m)=>{by[k].mass+=m==null?(o.mass||0):m;by[k].cost+=o.cost||0;};
+    add('body',BUS);add('body',dm);add('body',ch);
+    add('mobility',{cost:(wh.cost||0)+(ws.cost||0)},(wh.mass||0)*ws.k);add('mobility',su);add('mobility',G('mobility','clear'));
+    add('power',pw);add('power',bt);add('arm',ar);add('arm',st);if(dr)add('arm',dr);
+    add('comms',co);add('comms',ds);add('comms',G('comms','backup'));add('protect',th);add('protect',du);add('protect',sh);
+    for(const k of I)if(INS[k])add('inst',INS[k]);
+    let mass=0,cost=0;for(const k in by){mass+=by[k].mass;cost+=by[k].cost;}
     /* mounting units */
     const used={mast:0,deck:0,arm:dr?1:0,body:0};for(const k of I)if(INS[k])used[INS[k].mount]+=INS[k].units;
     const capM={mast:5,deck:dm.deck||4,arm:ar.slots||0,body:1};
@@ -189,7 +195,7 @@ const RK=(()=>{
       gpr:I.has('gpr'),wx:I.has('env'),dose:I.has('rad'),sand:I.has('thermal'),atmo:I.has('atmo'),mag:I.has('mag'),seis:I.has('seis'),tubes:+c.store||8,
       covers:c.dust!=='none',eds:c.dust==='eds'};
     const genDay=pw.peak*.8+pw.rtg,dayMargin=genDay-run;
-    return {cfg:c,mass,cost,limit:LIMIT,budget:BUDGET,used,capM,batWh,peak:pw.peak,rtg:pw.rtg,run,heat,drive,genDay,dayMargin,
+    return {cfg:c,mass,cost,by,limit:LIMIT,budget:BUDGET,used,capM,batWh,peak:pw.peak,rtg:pw.rtg,run,heat,drive,genDay,dayMargin,
       vmax,sandK,sandE:1+(1-sandK)*2.4,climb,passR,stab,tough,turn,rad,rel,can,
       storeMB:ds.mb,dte:co.dte,relay:co.relay,backup:bk,drill:dr?c.drill:null,drillWh:dr?dr.wh:0,drillSecs:dr?dr.secs:0,dustK:c.dust==='eds'?.4:c.power==='solarL'?1.3:1,
       speedCm:vmax*.09,clearM:{low:.5,std:.6,high:.72}[cl]+(c.susp==='active'?.04:0)};}

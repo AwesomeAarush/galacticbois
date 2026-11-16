@@ -14,7 +14,7 @@ Mission Control: Beyond is a static site. There is no build step and no server c
 | `tools/obj2rover.py` | Splits the Mars Exploration Rover OBJ into named parts and writes `js/rover_mesh.js`. |
 | `js/roverkit.js` | Rover engineering: parts (`RK.CAT`), instruments (`RK.INS`), objectives (`RK.OBJ`) and the calculator (`RK.spec`). |
 | `js/rover_mesh.js` | Generated rover geometry (base64, about 290 KB). |
-| `js/equations.js` | Interactive equation panels (`Eq.attach`): rocket equation, oxygen endurance, solar power. |
+| `js/equations.js` | Interactive equation panels (`Eq.attach`) and worked-formula cards (`FX`, see below). |
 | `js/voice.js` | The narrator, as a module called `Voice`. |
 | `js/GLTFLoader.js` | The standard three.js loader for `.glb` files (unchanged library code). |
 | `assets/` | `spacecraft_3d.glb` (the spacecraft), `mars.jpg` and `earth.jpg` (planet maps from NASA's GMAT). |
@@ -62,7 +62,7 @@ Picking a launch site sets `S.site`. From then on `cap()` returns that site's ma
 
 ## Testing hooks
 
-`window.__game` exposes `S`, `go()`, `plan()`, `design()`, `checks()` and `DEMO.k` (a speed factor: 0.02 runs the game fifty times faster). During a minigame, `window.__mini.solve()` and `.fail()` end it either way.
+`window.__game` exposes `S`, `go()`, `plan()`, `design()`, `checks()` and `DEMO.k` (a speed factor: 0.02 runs the game fifty times faster). During a minigame, `window.__mini.solve()` and `.fail()` end it either way. `Rover.dev` is the running expedition (`S`, `forms`, `damage(n)`, `breakdown()`); `Rover.COND` is the condition model; `Race.rank(list)` ranks a leaderboard; `FX._act(id, 'calc'|'hint'|'show')` drives a formula card.
 
 ---
 
@@ -79,7 +79,7 @@ Picking a launch site sets `S.site`. From then on `cap()` returns that site's ma
 
 **Hardware controls.** `.tsw` (toggle switch) and `.brk` (main breaker) are plain buttons styled in `style.css`; the class `on` flips the lever.
 
-**Events.** `evStorm` no longer destroys the spacecraft unless the dose passes the electronics limit: that failure plays the `missmars` scene (Mars goes past) and shows a "what went wrong" card. Lesser dose damages electronics (`S.radDeg`), interrupts a pass and raises crew radiation. `evRock` is rolled at launch (`S.cr.rock`, about 1 flight in 40) and `evToilet` at 13%, so the toilet is the more common of the two. `evToilet` plays the rendered `toilet` scene from `js/cutscenes.js`, then the valve task. `evPanel` shows eight telemetry channels with their normal ranges and highlights nothing. `makeSchedule()` deals the cruise events in a random order each flight.
+**Events.** `evStorm` is a solar particle event with measurements (flare class, proton flux and NOAA S-level, dose rate, duration), a worked dose formula and two decisions: where the crew shelters (1, 5 or 10 g/cm²) and whether the instruments go to safe mode or keep observing. Dose model D = Ḋ₀ × t × ½^(x ÷ 3 g/cm²), fitted to NASA transport calculations for an August-1972-like storm between 1 and 10 g/cm² and labelled as an approximation; the crew limit is NASA's 30-day blood-forming-organ limit, 250 mGy-Eq. It no longer ends the mission. Cruise odds are rolled at launch (`S.cr`): storm 55% (NOAA: about 13 storms of S3 or stronger per 11-year cycle), toilet leak 30%, rock 1%; the reasoning is in the comment above the roll.
 
 **Demo controls** are hidden. Add `?demo` to the address to show them.
 
@@ -124,12 +124,16 @@ Gameplay reads the rover spec: energy in watt-hours (generation from sunlight, d
 `js/gmat_data.js` is made by `tools/gmat_pipeline.py`, which writes GMAT scripts and runs GMAT's console program:
 
 1. **Ephemeris run.** A clock spacecraft steps one day at a time and GMAT reports Earth's and Mars's positions and velocities (Sun-centred, mean ecliptic of J2000, DE421) for day −10 to day 1,900 of the game calendar.
-2. **Targeting run.** For every launch day the game counts as inside a window (the same test as `plan()`), and for both routes, GMAT's differential corrector varies the departure velocity until the spacecraft is within 500 m of Mars's centre on arrival day. Forces: point-mass Sun, Venus, Jupiter and Saturn, Runge-Kutta 8(9). The arrival day is the one with the lowest launch energy plus arrival speed within 45 days of the game's flight time, avoiding transfers within 8° of exactly half an orbit. A two-body Lambert solution is only the starting guess.
-3. **Propagation run.** GMAT flies each targeted transfer again and reports position and speed every 2 days.
+2. **Targeting run.** For every launch day inside a window (plus four days either side), and for both routes, GMAT's differential corrector varies the in-plane departure velocity until the spacecraft is within 500 km of Mars's position on arrival day in the ecliptic plane. The flight time is not optimised: it comes from the game's route rule (below), so it changes smoothly from one day to the next. Forces: point-mass Sun, Venus, Jupiter and Saturn, Runge-Kutta 8(9).
+3. **Propagation run.** GMAT flies each targeted transfer again and reports position and speed every 2 days and on arrival day.
 
-In `js/game.js`, `GM` decodes the file. `Le()` and `Lm()` (where Earth and Mars are) read GMAT's positions, so launch windows follow the real planets. `plan()` keeps the game's window rule for the aiming error, and inside a window it takes the flight time and the path from GMAT (`tr.gm` names the transfer; `tr.T` is GMAT's flight time). `drawSys()` draws the real orbits, the planets and GMAT's path; `craftAt()` gives the spacecraft's position and speed on any day of the cruise. The cruise telemetry (distance from the Sun, speed, distance from Earth and Mars, signal delay) comes from those numbers. Outside a window, or if the file is missing, the game falls back to its own circular-orbit model.
+**One route rule for every launch day** (`GM.route` in `js/game.js`, `QEph.route` in the pipeline; both read the same rounded positions, so they agree to the day). The transfer orbit's perihelion is Earth's actual position on launch day. Its aphelion is Mars's actual distance from the Sun at the arrival longitude (Hohmann), or 2.4% beyond it (fast route, which then crosses Mars's orbit early). Kepler's equation gives the flight time. `plan()` uses this route for the flight time, the arrival point and the aiming error on every date, in or out of a window, so the drawn route, the "You arrive here" mark and the arrival date never jump. Inside a window GMAT's aimed flight path is attached (`tr.gm`) and the cruise follows it (`craftAt`); Mars is up to 1.85° out of the ecliptic, so after half the flight `craftAt` closes the out-of-plane offset (a mid-course plane change) and the spacecraft meets Mars on arrival day. Without the data file the game uses its circular-orbit model.
 
-**Not from GMAT:** the braking burn, aerobraking and orbit choices, the speed-change budget and the aiming-error penalty still use the game's simplified model, so the game's balance is unchanged. The launch energy (C3) and arrival speed GMAT found are shown next to them for comparison.
+`drawSys()` draws one full orbit of each planet from the start of the ephemeris (so the orbits never run off the end of the table), the route, the arrival mark, and labels laid out so they do not overlap or leave the canvas.
+
+Bugs this replaced: GMAT data used to exist only for window days, and the game switched to a different model outside them (jumps on 19→20 Nov 2028 and 19→20 Mar 2031); the pipeline picked each day's flight time by optimisation, which switched between short-way and long-way transfers (the route jumped backward on 7→8 Feb 2031); the Mars orbit was drawn from the launch date forward and ran past the end of the ephemeris after 27 Sep 2031; the arrival mark was drawn only on the model path.
+
+**Not from GMAT:** the braking burn, aerobraking and orbit choices, the speed-change budget and the aiming-error penalty still use the game's simplified model. The launch energy (C3) and arrival speed GMAT found are shown next to them for comparison.
 
 ## Race mode
 
@@ -148,8 +152,24 @@ Why two kinds of route: the first version connected browsers directly (WebRTC th
 
 **Testing.** `?api=0` turns off the game-server route; `?relay=ws://host:port,...` replaces the relay list; `?api=/path` points at another route.
 
+## Worked formulas (`FX` in js/equations.js)
+
+`FX.card(def)` returns a collapsible card; `FX.bind(root)` wires it; `FX.refresh(root)` re-reads live values after a design change (a solved card asks for new numbers only if its inputs actually changed). A definition lists the formula, each variable (meaning, unit, effect of raising it), an equation template with blanks, `get()` for live values, `calc`, `steps`, `meaning` (what the answer means for this mission), hints, and optional explanations for common wrong values (`why`) and wrong answers (`ansWhy`). Cards in the game: delta-v (engine tab), array power at Mars (power tab), crew oxygen (crew tab), Hohmann flight time (trajectory screen), rover range (rover power tab), storm dose (storm event). Definitions for Mission 1 are in `FXDEF` in game.js.
+
+## Mission 2 and Mission 1's data
+
+`reconOf(survey)` (game.js) turns the instruments whose Jezero data reached Earth in Mission 1 (`S.survey`, saved in `CAMP.m1.survey`) into what the surface team knows: high-resolution images locate the formations exactly and show terrain in detail; context images locate them within about 60 m and show terrain coarsely; the altimeter gives relief; the spectrometer adds likely rock types; nothing on file means formations must be found by driving. The rover reads it as `opt.recon` (marker positions and uncertainty circles, fog darkness). Data still on the orbiter at the end of Mission 1 does not count. "New campaign" on the title screen clears it.
+
+## Rover condition
+
+`Rover.COND` (rover.js): condition runs from 100% to 0%; lower condition means slower driving, more energy per metre, more instrument faults and noisier measurements. A breakdown can happen at any time with a rate of 1.5 × (1 − c/100)⁴ per Mars hour of driving (a fifth of that parked), and 0% is certain failure. A breakdown ends Mission 2: the signal-lost sequence plays, the debrief records it, the outpost does not run, and race mode reports a failed mission.
+
+## Race speed multiplier
+
+`Race.rank(list)` ranks by race score = mission score × speed. Speed is 1.00× to 1.15×, against the slowest completed mission (half its time or less: 1.15×; the same time: 1.00×; linear in between). Failed missions always get 1.00×; one completed mission gets 1.00×.
+
 ## Data sources and accuracy
 
 Real figures, with their source: physical constants; planet positions and transfers (NASA GMAT runs, DE421); Earth's spin speed by latitude; instrument masses, powers and resolutions close to the named instruments (HiRISE, CTX, CRISM, THEMIS, MCS, SHARAD, Odyssey GRS, MOLA, MAG/ER, MARIE; Mastcam-Z, SuperCam, APXS, MAHLI, MEDA, RAD, SAM, RIMFAX, MMRTG); best flown storable bipropellant Isp about 329 s; 0.84 kg of oxygen per person per day; NASA's 30-day blood-forming-organ dose limit of 25 cGy-Eq; Jezero temperatures from Perseverance's MEDA; rock chemistry as oxide weight percent typical of Gale and Jezero rocks; spectral band positions; MRO aerobraking (about five months, more than 400 passes); MOXIE (122 g of oxygen in 16 runs).
 
-Game values (tuned for play, labelled in code comments and on screen): costs, budgets, the 1,200 kg launch limit with a crew of three, life-support masses and drain rates, data volumes, reliabilities, rover drive energy and the compressed Mars clock, outpost power, event odds.
+Game values (labelled in code comments, with the reasoning): Mission 1 costs are scaled so the HiRISE-type camera costs what HiRISE did ($35–40M) and every other cost by the same factor (`COSTK` = 1.5); the rover budget is far below a real rover's (Perseverance: about $2.4 billion to build and launch). The 1,200 kg launch limit with a crew of three is the game's premise and is not physically possible; life-support masses are one tenth of real ones, all at the same scale, and consumables are not counted (comment above `OXY`). Data volumes, reliabilities, rover drive energy, the compressed Mars clock, outpost power and the rover breakdown curve are game values.

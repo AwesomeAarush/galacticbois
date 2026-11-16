@@ -70,8 +70,8 @@ const Rover=(()=>{
     floor:{n:'Crater floor',base:[1760,1130],rocks:.75,d:'Flat and open. A long drive to the scarp.'},
     rim:{n:'East bench',base:[2240,860],rocks:1.1,d:'High ground by the pale rocks. Steep approaches.'}};
 
-  let world=null;
-  function build(siteKey,FS,blind){
+  let world=null,DEV=null;   /* DEV: the running expedition, for automated tests (Rover.dev) */
+  function build(siteKey,FS,blind,fogA){
     const site=SITES[siteKey]||SITES.delta,r=rng(siteKey.length*977+13),B=site.base;
     /* boulders: scattered, denser under the scarp and on crater rims */
     const rocks=[];let tries=0;
@@ -107,7 +107,7 @@ const Rover=(()=>{
       for(let i=0;i<3;i++){x.fillStyle='#1b2a52';x.fillRect(bx+8+i*11,by+10,9,22);x.strokeStyle='#8fa6d8';x.lineWidth=.6;x.strokeRect(bx+8+i*11,by+10,9,22);x.beginPath();x.moveTo(bx+8+i*11,by+21);x.lineTo(bx+17+i*11,by+21);x.stroke();}
       x.strokeStyle='#d8d8d8';x.lineWidth=1.4;x.beginPath();x.moveTo(bx-30,by+22);x.lineTo(bx-30,by+8);x.stroke();x.fillStyle='#eee';x.beginPath();x.arc(bx-30,by+7,5,Math.PI,0);x.fill();
       x.fillStyle='#d9a441';x.fillRect(bx+20,by-26,12,10);x.fillStyle='#6b6964';x.fillRect(bx+22,by-30,3,4);x.fillRect(bx+27,by-30,3,4);}
-    const fog=document.createElement('canvas');fog.width=tw;fog.height=th;const fx=fog.getContext('2d');fx.fillStyle='rgba(8,5,4,.88)';fx.fillRect(0,0,tw,th);
+    const fog=document.createElement('canvas');fog.width=tw;fog.height=th;const fx=fog.getContext('2d');fx.fillStyle=`rgba(8,5,4,${fogA==null?.88:fogA})`;fx.fillRect(0,0,tw,th);
     return {site,siteKey,base:{x:B[0],y:B[1]},rocks,forms,tex:c,fog,fx,cells:new Uint8Array(26*19),seenCells:0};}
 
   /* a close-up picture of a rock, for the camera and the scanner */
@@ -129,12 +129,29 @@ const Rover=(()=>{
      picture of the rover from Models.snapshot), blind (landed without hazard images), relayM1 (the player's Mission 1
      orbiter adds a relay pass), resume (a saved state to continue), save(state) (called every few seconds).
      Energy is tracked in watt-hours. Mars time runs 12 seconds for every real second, starting at 13:00 local time. */
+  /* Rover condition, 0 to 100 %. Impacts, rocks and steep slopes wear it down. As it falls the rover gets slower,
+     spends more energy per metre (dragging wheels, worn gears) and its instruments fault more often. Separately, a
+     breakdown can end the expedition at any moment: its rate rises steeply as condition falls, so it is negligible on a
+     healthy rover, real at half condition and likely below a third. 0 % is certain failure. This is a game model of
+     wear-out (the shape follows the rising part of an engineering "bathtub" failure curve), not NASA data. */
+  const COND={
+    speed:c=>.5+.5*c/100,                                /* share of top speed */
+    energy:c=>1+.4*(1-c/100),                            /* drive energy per metre, multiplier */
+    instFault:c=>1+2*(1-c/100),                          /* instrument and electronics fault rate, multiplier */
+    noise:c=>1+.5*(1-c/100),                             /* measurement scatter, multiplier */
+    hazard:c=>c<=0?Infinity:1.5*Math.pow(1-c/100,4),     /* breakdowns per Mars hour of driving; a fifth of that parked */
+    risk:(c,h=1)=>c<=0?1:1-Math.exp(-COND.hazard(c)*h)};  /* chance of a breakdown in h Mars hours of driving */
   const HPS=.2/60,T0=13*60;                           /* hours of Mars time per real second; start time in minutes */
   const RELAY=[[13*60+40,13*60+52],[15*60+5,15*60+17],[16*60+30,16*60+42]],M1PASS=[14*60+20,14*60+32],EARTH=[13*60,15*60+40];
   function start(opt){return new Promise(resolve=>{
     const host=opt.root,sp=opt.spec||(typeof RK!=='undefined'?RK.spec(RK.defaults()):null),can=sp.can,sol=opt.sol||1,R0=opt.resume;
     const FS=genForms(opt.site||'delta',opt.seed||1);
-    world=build(opt.site||'delta',FS,opt.blind);const w=world,B=w.base;
+    /* Mission 1's orbital data (reconOf in game.js): how well the formations are located and how dark the fog is */
+    const RC=opt.recon||{forms:'exact',types:false,fog:.88};
+    world=build(opt.site||'delta',FS,opt.blind,RC.fog);const w=world,B=w.base;
+    for(const f of w.forms){f.known=RC.forms!=='none';f.unc=0;f.ax=f.x;f.ay=f.y;
+      if(RC.forms==='rough'){const q=rng(f.seed+977),an=q()*6.283,dd=18+q()*36;f.unc=60;f.ax=f.x+Math.cos(an)*dd;f.ay=f.y+Math.sin(an)*dd;}}
+    const listed=f=>f.seen||f.known, fx_=f=>f.seen?f.x:f.ax, fy_=f=>f.seen?f.y:f.ay;
     const S={x:B.x+34,y:B.y+10,a:-.3,v:0,wh:sp.batWh,cond:opt.blind?88:100,dist:0,t:0,path:[[B.x+34,B.y+10]],log:[],samples:[],photos:0,emergency:false,left:false,done:false,stranded:false,
       alert:0,drill:null,busy:null,panel:null,map:false,keys:{},msg:'',msgT:0,mb:0,sent:0,dust:1,gprM:0,wxT:0,doseT:0,faults:[],wheelK:1,instOff:{},radioOff:0,stall:0,way:null,atmo:null,mag:null,seis:null,labs:0};
     if(R0){Object.assign(S,R0.S);S.keys={};S.panel=null;S.map=false;S.drill=null;S.busy=null;
@@ -144,7 +161,7 @@ const Rover=(()=>{
     const lmst=()=>{const m=lm();return `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(Math.floor(m%60)).padStart(2,'0')}`;};
     const sunF=()=>{const h=lm()/60;return Math.max(0,Math.sin(Math.PI*(h-6)/12));};
     const say=(t)=>{S.log.unshift(`${lmst()} ${t}`);S.msg=t;S.msgT=3.5;logEl.innerHTML=S.log.slice(0,30).map(l=>`<div><b>›</b> ${l}</div>`).join('');};
-    const distBase=()=>Math.hypot(S.x-B.x,S.y-B.y),returnCost=()=>(distBase()*sp.drive/100*1.35*(S.emergency?.9:1))/sp.batWh*100+1.5;
+    const distBase=()=>Math.hypot(S.x-B.x,S.y-B.y),returnCost=()=>(distBase()*sp.drive/100*1.35*(S.emergency?.9:1)*COND.energy(S.cond))/sp.batWh*100+1.5;
     const near=(range=75)=>{let best=null,bd=1e9;for(const f of w.forms){const d=Math.hypot(S.x-f.x,S.y-f.y)-f.r;if(d<range&&d<bd){bd=d;best=f;}}return best;};
     const explored=()=>w.seenCells/w.cells.length;
     const use=(wh)=>{S.wh=Math.max(0,S.wh-wh);};
@@ -158,7 +175,7 @@ const Rover=(()=>{
 
     host.innerHTML=`<div class="rover"><div class="rvmain"><div class="rvwrap"><canvas id="rvc" tabindex="0" aria-label="Rover view. Drive with W A S D."></canvas>
         <div class="rvbanner" id="rvban"></div><canvas class="rvmini" id="rvmini" width="190" height="139" aria-label="Minimap. Click to open the regional map."></canvas>
-        <div class="rvpanel" id="rvpanel" hidden></div><div class="rvmap" id="rvmap" hidden><canvas id="rvmc"></canvas><div class="rvminfo" id="rvminfo"></div><p class="mono">Regional map · simulated terrain · formations located from orbit · click a marker · M to close</p></div>
+        <div class="rvpanel" id="rvpanel" hidden></div><div class="rvmap" id="rvmap" hidden><canvas id="rvmc"></canvas><div class="rvminfo" id="rvminfo"></div><p class="mono">Regional map · simulated terrain · ${RC.forms==='exact'?'formations located from high-resolution images':RC.forms==='rough'?'formations roughly located from context images':'no formations located from orbit'} · click a marker · M to close</p></div>
         <div class="rvpad" aria-label="Touch controls"><button type="button" data-k="KeyA">◀</button><div><button type="button" data-k="KeyW">▲</button><button type="button" data-k="KeyS">▼</button></div><button type="button" data-k="KeyD">▶</button><button type="button" data-k="Space" class="wide">Brake</button></div></div>
       <div class="rvkeys mono"><span><b>W A S D</b> drive</span><span><b>Space</b> brake</span><span><b>E</b> interact</span><span><b>I</b> instruments</span><span><b>M</b> map</span></div></div>
       <div class="rvside"><div class="panel"><div class="row between"><p class="kicker">Rover</p><span class="pill info" id="rvclock"></span></div><div id="rvstat"></div>
@@ -168,6 +185,7 @@ const Rover=(()=>{
         <div class="panel"><p class="kicker">Expedition log</p><div class="log" id="rvlog"></div></div></div></div>`;
     const cv=host.querySelector('#rvc'),ctx=cv.getContext('2d'),statEl=host.querySelector('#rvstat'),objEl=host.querySelector('#rvobj'),logEl=host.querySelector('#rvlog'),panelEl=host.querySelector('#rvpanel'),mapEl=host.querySelector('#rvmap'),banEl=host.querySelector('#rvban'),mini=host.querySelector('#rvmini'),mctx=mini.getContext('2d');
     let cam={x:S.x,y:S.y},raf=0,last=performance.now(),uiT=0,saveAt=performance.now()+3000,alive=true;
+    DEV={get S(){return S;},get forms(){return w.forms;},damage:(n,m)=>damage(n,m),breakdown:k=>breakdown(k)};
     /* reveal the fog along a path (used when a saved expedition resumes) */
     const reveal=(x,y)=>{const fx=w.fx,rr=330*can.sight,g=fx.createRadialGradient(x*TS,y*TS,110*can.sight*TS,x*TS,y*TS,rr*TS);g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(1,'rgba(0,0,0,0)');fx.globalCompositeOperation='destination-out';fx.fillStyle=g;fx.beginPath();fx.arc(x*TS,y*TS,rr*TS,0,7);fx.fill();fx.globalCompositeOperation='source-over';
       const ci=clamp(x/W*26|0,0,25),cj=clamp(y/H*19|0,0,18);for(let j=cj-1;j<=cj+1;j++)for(let i=ci-1;i<=ci+1;i++)if(i>=0&&j>=0&&i<26&&j<19&&!w.cells[j*26+i]){w.cells[j*26+i]=1;w.seenCells++;}};
@@ -185,7 +203,7 @@ const Rover=(()=>{
       b.addEventListener('pointerdown',on);b.addEventListener('pointerup',off);b.addEventListener('pointerleave',off);b.addEventListener('pointercancel',off);});
     host.querySelector('#rvI').onclick=()=>togglePanel();host.querySelector('#rvM').onclick=()=>toggleMap();host.querySelector('#rvE').onclick=()=>interact();mini.onclick=()=>{if(!S.map)toggleMap();};
     host.querySelector('#rvR').onclick=()=>{S.emergency=!S.emergency;host.querySelector('#rvR').setAttribute('aria-pressed',S.emergency);if(S.emergency){closePanel();say('Emergency return: instruments off, speed limited, heading for base.');}else say('Emergency return cancelled.');};
-    const onHide=()=>{if(alive&&opt.save&&!S.done&&!S.stranded)opt.save(snapshotState());};addEventListener('pagehide',onHide);document.addEventListener('visibilitychange',onHide);
+    const onHide=()=>{if(alive&&opt.save&&!S.done&&!S.stranded&&!S.broken)opt.save(snapshotState());};addEventListener('pagehide',onHide);document.addEventListener('visibilitychange',onHide);
     function cleanup(){alive=false;cancelAnimationFrame(raf);removeEventListener('keydown',kd);removeEventListener('keyup',ku);removeEventListener('pagehide',onHide);document.removeEventListener('visibilitychange',onHide);window.__rover=null;}
 
     /* ----- instruments ----- */
@@ -247,7 +265,7 @@ const Rover=(()=>{
       panelEl.querySelector('#rpF').onclick=fire;ac.addEventListener('dblclick',fire);panelEl.querySelector('#rpx').onclick=()=>{live=false;closePanel();};panelEl.querySelector('#rpB').onclick=()=>{live=false;drawPanel();};
       S.fire=fire;}
     function scanResult(f,q,how){S.fire=null;const r=rng(f.seed*91+(S.t*10|0)),true_=CLS[f.cls].comp,v={};
-      for(const el of ELS)v[el]=Math.max(0,true_[el]+(r()-.5)*2*(2+(1-q)*14));
+      for(const el of ELS)v[el]=Math.max(0,true_[el]+(r()-.5)*2*(2+(1-q)*14)*COND.noise(S.cond));
       const first=!f.scan;if(!f.scan||q>f.scan.q)f.scan={v,q,how};f.seen=true;if(first)say(`${how==='contact'?'Contact':'Laser'} analysis of ${f.name} recorded.`);
       const s=f.scan,mx=Math.max(...ELS.map(el=>s.v[el]),30);S.panel='scan';panelEl.hidden=false;
       panelEl.innerHTML=panelHead(`Analysis · ${f.name}`)+`
@@ -273,39 +291,52 @@ const Rover=(()=>{
       if(miss&&!S.confirm){S.confirm=true;say(`${miss} objective${miss>1?'s':''} still open. Press E again to dock anyway.`);setTimeout(()=>{S.confirm=false;},5000);return;}
       S.done=true;S.v=0;say('Docked. Expedition complete.');end();}
     function end(){const o=O();cleanup();draw();
-      resolve({site:w.siteKey,dist:S.dist,battery:S.e,cond:S.cond,stranded:S.stranded,explored:explored(),photos:S.photos,found:w.forms.filter(f=>f.seen).length,
+      resolve({site:w.siteKey,dist:S.dist,battery:S.e,cond:S.cond,stranded:S.stranded,broken:S.broken||null,explored:explored(),photos:S.photos,found:w.forms.filter(f=>f.seen).length,
         scans:w.forms.filter(f=>f.scan).map(f=>({name:f.name,cls:f.cls,guess:f.guess,q:f.scan.q,how:f.scan.how,v:Object.fromEntries(ELS.map(el=>[el,+f.scan.v[el].toFixed(1)]))})),
         samples:S.samples.slice(),log:S.log.slice(0,60),main:o.main.map(x=>[x[0],!!x[1]]),opt:o.opt.map(x=>[x[0],!!x[1]]),clock:lmst(),
         extras:{gpr:S.gprM>=400,wx:S.wxT>=120,dose:S.doseT>=120,lab:S.labs,atmo:!!S.atmo,micro:w.forms.filter(f=>f.micro).length},faults:S.faults.slice(),sent:S.sent,data:S.mb});}
     /* ----- maps ----- */
     function toggleMap(){S.map=!S.map;mapEl.hidden=!S.map;if(S.map){drawMap();host.querySelector('#rvminfo').innerHTML=S.sel!=null?markerInfo(w.forms[S.sel]):'<span class="dim">Click a formation marker for its details.</span>';}}
     const status=f=>f.sampled?'sampled':f.scan?'analyzed':f.photo?'photographed':f.seen?'sighted':'located';
+    /* what the orbital mineral spectra suggest for a located formation (CRISM-type data from Mission 1) */
+    const HINT={mud:'clay minerals',sand:'clay minerals, weaker',bas:'olivine and pyroxene',carb:'carbonate',sulf:'sulfate'};
     const STC={located:'rgba(239,230,217,.75)',sighted:'#efe6d9',photographed:'#f2b84f',analyzed:'#8fc8da',sampled:'#86c994'};
     function marker(x,X,Y,f,sz){const st=status(f);x.save();x.translate(X,Y);x.rotate(Math.PI/4);x.lineWidth=1.5;x.strokeStyle=STC[st];x.fillStyle=STC[st];
       if(st==='located'){x.setLineDash([2,2]);x.strokeRect(-sz/2,-sz/2,sz,sz);x.setLineDash([]);}else{x.fillRect(-sz/2,-sz/2,sz,sz);x.strokeStyle='rgba(8,5,4,.8)';x.strokeRect(-sz/2,-sz/2,sz,sz);}
       x.restore();if(st==='sampled'){x.fillStyle='#0b0908';x.beginPath();x.arc(X,Y,sz*.18,0,7);x.fill();}if(S.sel===f.id){x.strokeStyle='#ea6f3c';x.lineWidth=2;x.beginPath();x.arc(X,Y,sz*1.05,0,7);x.stroke();}}
-    function markerInfo(f){if(!f)return '';const d=Math.hypot(f.x-S.x,f.y-S.y),b=((Math.atan2(f.y-S.y,f.x-S.x)*180/Math.PI+90)%360+360)%360;
+    function markerInfo(f){if(!f)return '';const X=fx_(f),Y=fy_(f),d=Math.hypot(X-S.x,Y-S.y),b=((Math.atan2(Y-S.y,X-S.x)*180/Math.PI+90)%360+360)%360;
       return `<div class="row between"><b>${f.code} · ${f.seen?f.name:'Unidentified outcrop'}</b><span class="pill info">${status(f)}</span></div>
-        <div class="readouts"><div><span>Distance</span><b class="num">${Math.round(d)} m</b></div><div><span>Bearing</span><b class="num">${String(Math.round(b)).padStart(3,'0')}°</b></div><div><span>Rock type</span><b class="num">${f.scan&&f.guess?CLS[f.guess].label:f.scan?'analyzed, unclassified':'not yet known'}</b></div></div>
+        <div class="readouts"><div><span>Distance</span><b class="num">${Math.round(d)} m${!f.seen&&f.unc?` ± ${f.unc}`:''}</b></div><div><span>Bearing</span><b class="num">${String(Math.round(b)).padStart(3,'0')}°</b></div><div><span>Rock type</span><b class="num">${f.scan&&f.guess?CLS[f.guess].label:f.scan?'analyzed, unclassified':'not yet known'}</b></div>${RC.types&&!f.scan?`<div><span>Orbital spectra</span><b class="num">${HINT[f.cls]}</b></div>`:''}</div>
+        ${!f.seen&&f.unc?'<p class="dim" style="font-size:.76rem">Located roughly from context images: it is somewhere inside the circle.</p>':''}
         <div class="row"><button type="button" class="btn sm" id="mWay">${S.way===f.id?'Clear waypoint':'Set as waypoint'}</button></div>`;}
     function drawMap(){const c=host.querySelector('#rvmc'),r=mapEl.getBoundingClientRect(),mw=Math.min(r.width-24,(r.height-120)*W/H);c.width=mw;c.height=mw*H/W;const x=c.getContext('2d'),k=mw/W;
       x.drawImage(w.tex,0,0,c.width,c.height);x.drawImage(w.fog,0,0,c.width,c.height);
-      if(S.way!=null){const f=w.forms[S.way];x.strokeStyle='rgba(234,111,60,.8)';x.setLineDash([6,5]);x.lineWidth=1.5;x.beginPath();x.moveTo(S.x*k,S.y*k);x.lineTo(f.x*k,f.y*k);x.stroke();x.setLineDash([]);}
+      if(S.way!=null){const f=w.forms[S.way];x.strokeStyle='rgba(234,111,60,.8)';x.setLineDash([6,5]);x.lineWidth=1.5;x.beginPath();x.moveTo(S.x*k,S.y*k);x.lineTo(fx_(f)*k,fy_(f)*k);x.stroke();x.setLineDash([]);}
       x.strokeStyle='rgba(143,200,218,.9)';x.lineWidth=1.5;x.beginPath();S.path.forEach((p,i)=>i?x.lineTo(p[0]*k,p[1]*k):x.moveTo(p[0]*k,p[1]*k));x.stroke();
       x.fillStyle='#f2b84f';x.fillRect(B.x*k-5,B.y*k-5,10,10);x.font='10px "Martian Mono",monospace';x.fillText('BASE',B.x*k+8,B.y*k+4);
-      for(const f of w.forms){marker(x,f.x*k,f.y*k,f,9);x.fillStyle='rgba(239,230,217,.85)';x.fillText(f.code,f.x*k+9,f.y*k+3);}
+      for(const f of w.forms){if(!listed(f))continue;const X=fx_(f)*k,Y=fy_(f)*k;
+        if(!f.seen&&f.unc){x.strokeStyle='rgba(239,230,217,.45)';x.setLineDash([3,4]);x.lineWidth=1;x.beginPath();x.arc(X,Y,f.unc*k,0,7);x.stroke();x.setLineDash([]);}
+        marker(x,X,Y,f,9);x.fillStyle='rgba(239,230,217,.85)';x.fillText(f.code,X+9,Y+3);}
+      if(!w.forms.some(listed)){x.fillStyle='rgba(239,230,217,.8)';x.font='11px "Martian Mono",monospace';x.fillText('No formations located: no orbital images on file',12,20);x.font='10px "Martian Mono",monospace';}
       x.save();x.translate(S.x*k,S.y*k);x.rotate(S.a);x.fillStyle='#ea6f3c';x.beginPath();x.moveTo(9,0);x.lineTo(-6,-5);x.lineTo(-6,5);x.fill();x.restore();
-      const L=[['located','located from orbit'],['sighted','sighted'],['photographed','photographed'],['analyzed','analyzed'],['sampled','sampled']];let lx=8;x.font='9px "Martian Mono",monospace';
+      const L=[...(RC.forms!=='none'?[['located',RC.forms==='rough'?'roughly located from orbit':'located from orbit']]:[]),['sighted','sighted'],['photographed','photographed'],['analyzed','analyzed'],['sampled','sampled']];let lx=8;x.font='9px "Martian Mono",monospace';
       for(const [st,l] of L){const f={id:-1,sampled:st==='sampled',scan:st==='analyzed'||st==='sampled'?1:null,photo:st!=='located'&&st!=='sighted',seen:st!=='located'};marker(x,lx+5,c.height-10,f,7);x.fillStyle='#efe6d9';x.fillText(l,lx+13,c.height-7);lx+=x.measureText(l).width+30;}
-      c.onclick=ev=>{const rr=c.getBoundingClientRect(),px=(ev.clientX-rr.left)/rr.width*c.width/k,py=(ev.clientY-rr.top)/rr.height*c.height/k;let best=null,bd=60;for(const f of w.forms){const d=Math.hypot(f.x-px,f.y-py);if(d<bd){bd=d;best=f;}}
+      c.onclick=ev=>{const rr=c.getBoundingClientRect(),px=(ev.clientX-rr.left)/rr.width*c.width/k,py=(ev.clientY-rr.top)/rr.height*c.height/k;let best=null,bd=60;for(const f of w.forms){if(!listed(f))continue;const d=Math.hypot(fx_(f)-px,fy_(f)-py);if(d<bd){bd=d;best=f;}}
         S.sel=best?best.id:null;drawMap();const inf=host.querySelector('#rvminfo');inf.innerHTML=best?markerInfo(best):'<span class="dim">Click a formation marker for its details.</span>';
         const b=inf.querySelector('#mWay');if(b)b.onclick=()=>{S.way=S.way===best.id?null:best.id;say(S.way!=null?`Waypoint set: ${best.code}.`:'Waypoint cleared.');drawMap();inf.innerHTML=markerInfo(best);toggleMap();};};}
     function drawMini(){const c=mini,x=mctx,k=c.width/W;x.clearRect(0,0,c.width,c.height);x.drawImage(w.tex,0,0,c.width,c.height);x.globalAlpha=.85;x.drawImage(w.fog,0,0,c.width,c.height);x.globalAlpha=1;
-      if(S.way!=null){const f=w.forms[S.way];x.strokeStyle='rgba(234,111,60,.9)';x.setLineDash([3,3]);x.beginPath();x.moveTo(S.x*k,S.y*k);x.lineTo(f.x*k,f.y*k);x.stroke();x.setLineDash([]);}
-      x.fillStyle='#f2b84f';x.fillRect(B.x*k-3,B.y*k-3,6,6);for(const f of w.forms)marker(x,f.x*k,f.y*k,f,6);
+      if(S.way!=null){const f=w.forms[S.way];x.strokeStyle='rgba(234,111,60,.9)';x.setLineDash([3,3]);x.beginPath();x.moveTo(S.x*k,S.y*k);x.lineTo(fx_(f)*k,fy_(f)*k);x.stroke();x.setLineDash([]);}
+      x.fillStyle='#f2b84f';x.fillRect(B.x*k-3,B.y*k-3,6,6);for(const f of w.forms)if(listed(f))marker(x,fx_(f)*k,fy_(f)*k,f,6);
       x.save();x.translate(S.x*k,S.y*k);x.rotate(S.a);x.fillStyle='#ea6f3c';x.beginPath();x.moveTo(6,0);x.lineTo(-4,-3.5);x.lineTo(-4,3.5);x.fill();x.restore();
       const vw=VIEW_W*k,vh=vw*.6;x.strokeStyle='rgba(239,230,217,.5)';x.lineWidth=1;x.strokeRect(cam.x*k-vw/2,cam.y*k-vh/2,vw,vh);}
 
+    /* ----- condition: damage, and the breakdown that ends the expedition ----- */
+    function damage(n,msg){if(S.broken)return;S.cond=Math.max(0,S.cond-n);if(msg)say(msg);if(S.cond<=0)breakdown('impact');}
+    function breakdown(kind){if(S.broken)return;S.v=0;S.keys={};S.drill=null;S.busy=null;S.panel=null;panelEl.hidden=true;if(S.map)toggleMap();
+      const pool=[['drive','A drive actuator seized. The rover cannot move.'],['power','A short circuit took out the power bus.'],['computer','The flight computer failed and did not come back after a reset.']];
+      const c=kind==='impact'?['impact','The last impact broke the chassis and the rover stopped responding.']:pool[Math.random()*pool.length|0];
+      S.broken={kind:c[0],why:c[1],cond:Math.round(S.cond),at:lmst(),x:Math.round(S.x),y:Math.round(S.y)};S.faults.push('breakdown');
+      say(`CATASTROPHIC FAILURE · ${c[1]}`);if(typeof SFX!=='undefined'&&SFX.alarm)SFX.alarm();S.lostT=performance.now();setTimeout(end,4200);}
     /* ----- faults: the less reliable the rover, the more often something goes wrong ----- */
     function fault(){const pool=['wheel','inst','radio','reset','reset'];if(sp.cfg.shield==='hard')pool.splice(pool.indexOf('reset'),1);const k=pool[Math.random()*pool.length|0];
       if(k==='wheel'&&S.wheelK>.8){S.wheelK=.78;S.faults.push('wheel');say('Fault: a wheel motor is dragging. Top speed reduced.');}
@@ -314,12 +345,12 @@ const Rover=(()=>{
       else if(k==='reset'){S.stall=S.t+5;S.faults.push('reset');say('Computer reset: the rover stops while it reboots.');}}
 
     /* ----- simulation ----- */
-    function step(dt){if(S.done||S.stranded)return;S.t+=dt;const K=S.keys,busy=!!S.panel||S.map||S.stall>S.t||!!S.busy;
+    function step(dt){if(S.done||S.stranded||S.broken)return;S.t+=dt;const K=S.keys,busy=!!S.panel||S.map||S.stall>S.t||!!S.busy;
       let fwd=!busy&&(K.KeyW||K.ArrowUp),rev=!busy&&(K.KeyS||K.ArrowDown),lt=!busy&&(K.KeyA||K.ArrowLeft),rt=!busy&&(K.KeyD||K.ArrowRight),brake=K.Space||S.stall>S.t||!!S.busy;
       /* emergency return drives itself toward base; any key takes control back for that moment */
       if(S.emergency&&!S.panel&&!S.map&&!fwd&&!rev&&!lt&&!rt&&!K.Space&&!(S.stall>S.t)){const d=distBase();if(d>55){let da=Math.atan2(B.y-S.y,B.x-S.x)-S.a;da=Math.atan2(Math.sin(da),Math.cos(da));lt=da<-.06;rt=da>.06;fwd=Math.abs(da)<1.1||Math.abs(S.v)<6;}else brake=true;}
       const sd=sandAt(S.x,S.y),hx=height(S.x+4,S.y)-height(S.x-4,S.y),hy=height(S.x,S.y+4)-height(S.x,S.y-4),grade=(hx*Math.cos(S.a)+hy*Math.sin(S.a))/8,steep=Math.hypot(hx,hy)/8;
-      let vmax=sp.vmax*S.wheelK*mix(1,sp.sandK,sd)*clamp(1-Math.max(0,grade)*1.6/sp.climb,.3,1)*(S.emergency?.6:1)*(.5+.5*S.cond/100);
+      let vmax=sp.vmax*S.wheelK*mix(1,sp.sandK,sd)*clamp(1-Math.max(0,grade)*1.6/sp.climb,.3,1)*(S.emergency?.6:1)*COND.speed(S.cond);
       if(S.drill){S.v*=Math.exp(-dt*8);if(fwd||rev){S.drill=null;say('Sampling cancelled: the rover moved.');}else{S.drill.t+=dt;if(S.drill.t>=S.drill.dur){const f=S.drill.f;S.drill=null;finishDrill(f);}}}
       else{if(fwd)S.v+=26*dt;else if(rev)S.v-=20*dt;else S.v*=Math.exp(-dt*.9);if(brake)S.v*=Math.exp(-dt*7);S.v=clamp(S.v,-vmax*.45,vmax);
         const turn=(rt?1:0)-(lt?1:0);S.a+=turn*1.5*sp.turn*dt*(.4+.6*Math.min(1,Math.abs(S.v)/18))*(S.v<-1?-1:1);}
@@ -327,16 +358,16 @@ const Rover=(()=>{
       let nx=S.x+Math.cos(S.a)*S.v*dt,ny=S.y+Math.sin(S.a)*S.v*dt;
       /* collisions: boulders (small ones can be driven over), formations, the habitat, the map edge */
       const R_=sp.rad,hit=(cx,cy,cr,over)=>{const d=Math.hypot(nx-cx,ny-cy),m=cr+R_;if(d>=m)return;
-        if(over&&cr<sp.passR){S.v*=Math.exp(-dt*3);if(Math.abs(S.v)>20&&Math.random()<dt*.6*sp.tough){S.cond=Math.max(5,S.cond-1.5*sp.tough);say('Bumped over a rock.');}return;}
-        const spd=Math.abs(S.v);if(spd>15){S.cond=Math.max(5,S.cond-(spd-15)*.6*sp.tough);say('Impact. Rover condition reduced.');}nx=cx+(nx-cx)/d*m;ny=cy+(ny-cy)/d*m;S.v*=.35;};
+        if(over&&cr<sp.passR){S.v*=Math.exp(-dt*3);if(Math.abs(S.v)>20&&Math.random()<dt*.6*sp.tough){damage(1.5*sp.tough,'Bumped over a rock.');}return;}
+        const spd=Math.abs(S.v);if(spd>15)damage((spd-15)*.6*sp.tough,'Impact. Rover condition reduced.');nx=cx+(nx-cx)/d*m;ny=cy+(ny-cy)/d*m;S.v*=.35;};
       for(const b of w.rocks)if(Math.abs(b.x-nx)<40&&Math.abs(b.y-ny)<40)hit(b.x,b.y,b.r,true);for(const f of w.forms)hit(f.x,f.y,f.r,false);hit(B.x-36,B.y-24,34,false);
       if(nx<30||nx>W-30||ny<30||ny>H-30){nx=clamp(nx,30,W-30);ny=clamp(ny,30,H-30);S.v*=.3;if(!S.edge){S.edge=true;say('Edge of the mapped area. Turn back.');setTimeout(()=>S.edge=false,6000);}}
       const moved=Math.hypot(nx-S.x,ny-S.y);S.x=nx;S.y=ny;S.dist+=moved;
       /* energy: generation minus standing load minus driving, in watt-hours */
       const h=lm()/60,gen=sp.peak*sunF()*S.dust+sp.rtg,load=sp.run+(h>=17?sp.heat:0)+(can.gpr&&moved>.05?15:0)+(can.sand?3:0)+(S.busy?20:0);
-      S.wh=clamp(S.wh+(gen-load)*HPS*dt-moved*sp.drive/100*mix(1,sp.sandE,sd)*(1+Math.max(0,grade)*7)*(S.emergency?.9:1),0,sp.batWh);
+      S.wh=clamp(S.wh+(gen-load)*HPS*dt-moved*sp.drive/100*mix(1,sp.sandE,sd)*(1+Math.max(0,grade)*7)*(S.emergency?.9:1)*COND.energy(S.cond),0,sp.batWh);
       S.dust=Math.max(.55,S.dust-dt*(.00012+(moved>.05&&sd>.4?.0006:0))*sp.dustK);
-      if(steep>.5&&moved>.2){S.cond=Math.max(5,S.cond-dt*.9*(1-sp.stab)*sp.tough);if(steep>.85&&sp.stab<.62&&Math.random()<dt*.15){S.cond=Math.max(5,S.cond-8);say('The rover lurched on the slope. Condition reduced.');}}
+      if(steep>.5&&moved>.2){damage(dt*.9*(1-sp.stab)*sp.tough);if(steep>.85&&sp.stab<.62&&Math.random()<dt*.15)damage(8,'The rover lurched on the slope. Condition reduced.');}
       S.terr=steep>.5?'slope':sd>.5?'sand':plateau(S.x,S.y)>.05&&plateau(S.x,S.y)<.95?'bed':'firm';
       if(can.gpr&&moved>.05&&instOn('gpr'))S.gprM+=moved;if(can.wx&&instOn('env'))S.wxT+=dt;if(can.dose&&instOn('rad'))S.doseT+=dt;
       /* data: direct to Earth while Earth is up, bursts during relay passes */
@@ -346,7 +377,9 @@ const Rover=(()=>{
       const lp=S.path[S.path.length-1];if(Math.hypot(S.x-lp[0],S.y-lp[1])>14)S.path.push([S.x,S.y]);
       reveal(S.x,S.y);
       for(const f of w.forms)if(!f.seen&&Math.hypot(S.x-f.x,S.y-f.y)<150*can.sight){f.seen=true;say(`Outcrop sighted: ${f.name} (${f.code}).`);}
-      if(S.left&&Math.random()<dt*(1-sp.rel)*.006)fault();
+      if(S.left&&Math.random()<dt*(1-sp.rel)*.006*COND.instFault(S.cond))fault();
+      /* breakdown roll: hazard per Mars hour, converted to this step (dt real seconds = dt*HPS Mars hours) */
+      if(S.left&&!S.broken&&Math.random()<1-Math.exp(-COND.hazard(S.cond)*dt*HPS*(moved>.05?1:.2)))breakdown();
       /* energy alerts, compared with the cost of driving home */
       const margin=S.e-returnCost(),lv=S.wh<=0?3:margin<4?2:margin<14?1:0;
       if(lv>S.alert&&S.left){say(['','Battery margin is thin. Check the return estimate.','Battery is barely enough to reach base.',''][lv]||'');if(lv>=2&&typeof SFX!=='undefined')SFX.alarm();}S.alert=lv;
@@ -377,7 +410,7 @@ const Rover=(()=>{
       /* base beacon */
       const pulse=(performance.now()/1000)%1.6/1.6;ctx.strokeStyle=`rgba(242,184,79,${.8*(1-pulse)})`;ctx.lineWidth=2;ctx.beginPath();ctx.arc(B.x,B.y,92+pulse*40,0,7);ctx.stroke();
       if(S.emergency||S.alert>=1){ctx.strokeStyle='rgba(242,184,79,.75)';ctx.setLineDash([10,8]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(S.x,S.y);ctx.lineTo(B.x,B.y);ctx.stroke();ctx.setLineDash([]);}
-      if(S.way!=null){const f=w.forms[S.way];ctx.strokeStyle='rgba(234,111,60,.6)';ctx.setLineDash([4,8]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(S.x,S.y);ctx.lineTo(f.x,f.y);ctx.stroke();ctx.setLineDash([]);ctx.strokeStyle='#ea6f3c';ctx.beginPath();ctx.arc(f.x,f.y,f.r+20,0,7);ctx.stroke();}
+      if(S.way!=null){const f=w.forms[S.way];ctx.strokeStyle='rgba(234,111,60,.6)';ctx.setLineDash([4,8]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(S.x,S.y);ctx.lineTo(fx_(f),fy_(f));ctx.stroke();ctx.setLineDash([]);ctx.strokeStyle='#ea6f3c';ctx.beginPath();ctx.arc(f.x,f.y,f.r+20,0,7);ctx.stroke();}
       /* the rover: the player's own build seen from above */
       ctx.save();ctx.translate(S.x,S.y);ctx.rotate(S.a);
       const lg=ctx.createLinearGradient(14,0,120,0);lg.addColorStop(0,'rgba(255,244,214,.22)');lg.addColorStop(1,'rgba(255,244,214,0)');ctx.fillStyle=lg;ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(120,-34);ctx.lineTo(120,34);ctx.fill();
@@ -391,25 +424,32 @@ const Rover=(()=>{
       /* fog of war */
       ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(w.fog,ox*TS,oy*TS,vw*TS,vh*TS,0,0,cv.width,cv.height);
       /* waypoint arrow at the edge of the view when the target is off screen */
-      if(S.way!=null){const f=w.forms[S.way],sx=(f.x-ox)*z,sy=(f.y-oy)*z;if(sx<0||sy<0||sx>cv.width||sy>cv.height){const a=Math.atan2(sy-cv.height/2,sx-cv.width/2),ex=cv.width/2+Math.cos(a)*(cv.width/2-26),ey=cv.height/2+Math.sin(a)*(cv.height/2-26);
+      if(S.way!=null){const f=w.forms[S.way],sx=(fx_(f)-ox)*z,sy=(fy_(f)-oy)*z;if(sx<0||sy<0||sx>cv.width||sy>cv.height){const a=Math.atan2(sy-cv.height/2,sx-cv.width/2),ex=cv.width/2+Math.cos(a)*(cv.width/2-26),ey=cv.height/2+Math.sin(a)*(cv.height/2-26);
         ctx.save();ctx.translate(clamp(ex,20,cv.width-20),clamp(ey,20,cv.height-20));ctx.rotate(a);ctx.fillStyle='#ea6f3c';ctx.beginPath();ctx.moveTo(12,0);ctx.lineTo(-8,-8);ctx.lineTo(-8,8);ctx.fill();ctx.restore();}}
       /* prompts */
       const u=cv.width/880;ctx.font=`${12*u}px "Martian Mono",monospace`;
       let prompt='';const f34=near(34);if(S.drill)prompt=sp.drill==='scoop'?'Scooping…':'Drilling…';else if(S.busy)prompt=S.busy.label;else if(S.stall>S.t)prompt='Rebooting…';else if(distBase()<70&&S.left)prompt='E  dock and end the expedition';else if(f34&&!f34.sampled&&!S.emergency&&can.sample)prompt=`E  take a sample     I  instruments`;else if(nf&&!S.emergency)prompt='I  instruments';
       if(prompt){const tw=ctx.measureText(prompt).width;ctx.fillStyle='rgba(8,5,4,.78)';ctx.fillRect(cv.width/2-tw/2-10*u,cv.height-40*u,tw+20*u,24*u);ctx.fillStyle='#f2b84f';ctx.fillText(prompt,cv.width/2-tw/2,cv.height-23*u);}
       ctx.fillStyle='rgba(239,230,217,.55)';ctx.font=`${9*u}px "Martian Mono",monospace`;ctx.fillText('SIMULATED TERRAIN · JEZERO WESTERN DELTA · '+w.site.n.toUpperCase(),10*u,16*u);
-      ctx.strokeStyle='rgba(239,230,217,.7)';ctx.lineWidth=1.2*u;ctx.beginPath();ctx.moveTo(cv.width-130*u,cv.height-18*u);ctx.lineTo(cv.width-130*u+100*z,cv.height-18*u);ctx.stroke();ctx.fillText('100 m',cv.width-130*u,cv.height-24*u);}
+      ctx.strokeStyle='rgba(239,230,217,.7)';ctx.lineWidth=1.2*u;ctx.beginPath();ctx.moveTo(cv.width-130*u,cv.height-18*u);ctx.lineTo(cv.width-130*u+100*z,cv.height-18*u);ctx.stroke();ctx.fillText('100 m',cv.width-130*u,cv.height-24*u);
+      /* catastrophic failure: the camera feed breaks up into static, then the signal is gone */
+      if(S.broken){const k=Math.min(1,(performance.now()-(S.lostT||0))/2600),W_=cv.width,H_=cv.height;
+        ctx.fillStyle=`rgba(6,4,3,${.25+.6*k})`;ctx.fillRect(0,0,W_,H_);
+        for(let i=0;i<260*(1-k*.6);i++){const g=Math.random()*200|0;ctx.fillStyle=`rgba(${g},${g},${g},${.25+Math.random()*.4})`;ctx.fillRect(Math.random()*W_,Math.random()*H_,(2+Math.random()*30)*u,1.5*u);}
+        for(let i=0;i<4;i++){ctx.fillStyle='rgba(239,93,82,.18)';ctx.fillRect(0,Math.random()*H_,W_,(2+Math.random()*10)*u);}
+        ctx.textAlign='center';ctx.fillStyle=`rgba(239,93,82,${.4+.6*k})`;ctx.font=`700 ${26*u}px "Martian Mono",monospace`;ctx.fillText('SIGNAL LOST',W_/2,H_/2-6*u);
+        ctx.fillStyle=`rgba(239,230,217,${k})`;ctx.font=`${11*u}px "Martian Mono",monospace`;ctx.fillText(`Catastrophic failure at ${S.broken.at} LMST · condition ${S.broken.cond}%`,W_/2,H_/2+20*u);ctx.textAlign='left';}}
     function ui(){const rc=returnCost(),hd=((S.a*180/Math.PI+90)%360+360)%360,o=O(),bar=(l,v,cls,txt)=>`<div class="meter ${cls}"><div class="t"><span>${l}</span><span class="num">${txt}</span></div><div class="b"><i style="width:${clamp(v,0,100)}%"></i></div></div>`;
       const m=lm(),next=RELAY.concat(opt.relayM1?[M1PASS]:[]).map(a=>a[0]).filter(t=>t>m).sort((a,b)=>a-b)[0],hm=t=>`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
       const gen=sp.peak*sunF()*S.dust+sp.rtg;
       host.querySelector('#rvclock').textContent=`Sol ${sol} · ${lmst()} LMST`;
-      statEl.innerHTML=bar(`Battery ${H_('rbattery')}`,S.e,S.e<rc+4?'over':S.e<rc+14?'warn':'ok',`${S.e.toFixed(0)}% · ${Math.round(S.wh)} Wh`)+bar('Needed to drive home',rc,'warn',`${rc.toFixed(0)}%`)+bar('Rover condition',S.cond,S.cond<50?'over':'ok',`${S.cond.toFixed(0)}%`)+
+      statEl.innerHTML=bar(`Battery ${H_('rbattery')}`,S.e,S.e<rc+4?'over':S.e<rc+14?'warn':'ok',`${S.e.toFixed(0)}% · ${Math.round(S.wh)} Wh`)+bar('Needed to drive home',rc,'warn',`${rc.toFixed(0)}%`)+bar(`Rover condition ${H_('rcond')}`,S.cond,S.cond<50?'over':S.cond<75?'warn':'ok',`${S.cond.toFixed(0)}%`)+`<p class="mono dim condrisk">Breakdown risk ${(()=>{const r=COND.risk(S.cond)*100;return r<.1?'under 0.1':r<10?r.toFixed(1):Math.round(r);})()}% per hour of driving</p>`+
         bar(`Data storage ${H_('rcomms')}`,S.mb/sp.storeMB*100,S.mb>sp.storeMB*.85?'over':'ok',`${(S.mb/1000).toFixed(2)} / ${(sp.storeMB/1000).toFixed(0)} GB`)+
         `<div class="rvnums"><div><span>Speed</span><b class="num">${(Math.abs(S.v)*.09).toFixed(1)} cm/s</b></div><div><span>Heading</span><b class="num">${String(Math.round(hd)).padStart(3,'0')}°</b></div><div><span>To base</span><b class="num">${Math.round(distBase())} m</b></div><div><span>Ground</span><b class="num">${TERRAIN[S.terr||'firm']}</b></div>
           <div><span>Power in</span><b class="num">${Math.round(gen)} W</b></div><div><span>${S.relayNow?'Relay pass':'Next relay'}</span><b class="num">${S.relayNow?'now':sp.relay&&next?hm(next):'none'}</b></div>${can.wx?`<div><span>Wind · pressure</span><b class="num">${(5+3*Math.sin(S.t/40)).toFixed(0)} m/s · ${Math.round(720+8*Math.sin(S.t/90))} Pa</b></div>`:''}${can.dose?`<div><span>Dose rate</span><b class="num">0.67 mSv/day</b></div>`:''}${can.gpr?`<div><span>Radar profile</span><b class="num">${Math.round(S.gprM)} m</b></div>`:''}</div>`;
       const row=x=>`<div class="obj ${x[1]?'done':''}"><i></i><span>${x[0]}</span>${x[2]?`<b class="num">${x[2]}</b>`:''}</div>`;
       objEl.innerHTML=o.main.map(row).join('')+`<p class="kicker" style="margin:6px 0 2px;color:var(--dim)">Optional</p>`+o.opt.map(row).join('');
-      banEl.textContent=S.stranded?'ROVER STRANDED':S.emergency?'EMERGENCY RETURN · INSTRUMENTS OFF':S.alert>=2?'BATTERY CRITICAL':S.alert===1?'BATTERY MARGIN LOW':S.mb>=sp.storeMB*.98?'DATA STORAGE FULL':m>=17*60+30?'SUNSET APPROACHING':'';banEl.className='rvbanner'+(S.stranded||S.alert>=2?' bad':S.emergency||S.alert===1||S.mb>=sp.storeMB*.98?' warn':'');}
+      banEl.textContent=S.broken?'SIGNAL LOST · CATASTROPHIC FAILURE':S.stranded?'ROVER STRANDED':S.emergency?'EMERGENCY RETURN · INSTRUMENTS OFF':S.alert>=2?'BATTERY CRITICAL':S.alert===1?'BATTERY MARGIN LOW':S.mb>=sp.storeMB*.98?'DATA STORAGE FULL':m>=17*60+30?'SUNSET APPROACHING':'';banEl.className='rvbanner'+(S.broken||S.stranded||S.alert>=2?' bad':S.emergency||S.alert===1||S.mb>=sp.storeMB*.98?' warn':'');}
     /* a saved snapshot of the expedition, so a refresh or a later visit continues where it stopped */
     const snapshotState=()=>({S:{x:S.x,y:S.y,a:S.a,wh:S.wh,cond:S.cond,dist:S.dist,t:S.t,path:S.path.slice(-400),log:S.log.slice(0,30),samples:S.samples,photos:S.photos,left:S.left,mb:S.mb,sent:S.sent,dust:S.dust,gprM:S.gprM,wxT:S.wxT,doseT:S.doseT,
       faults:S.faults,wheelK:S.wheelK,way:S.way,atmo:S.atmo,mag:S.mag,seis:S.seis,labs:S.labs,emergency:S.emergency},forms:w.forms.map(f=>({seen:f.seen,photo:f.photo,scan:f.scan,guess:f.guess,sampled:f.sampled,micro:f.micro,lab:f.lab}))});
@@ -417,8 +457,8 @@ const Rover=(()=>{
       /* slow devices take several small physics steps per drawn frame, so driving feels the same everywhere */
       for(let i=0;i<n;i++)step(dt);
       cam.x+=(S.x+Math.cos(S.a)*S.v*1.2-cam.x)*(1-Math.exp(-el*4));cam.y+=(S.y+Math.sin(S.a)*S.v*1.2-cam.y)*(1-Math.exp(-el*4));
-      draw();uiT-=el;if(uiT<=0){ui();drawMini();uiT=.2;if(S.map)drawMap();}if(now>=saveAt&&opt.save&&!S.done&&!S.stranded){saveAt=now+3000;opt.save(snapshotState());}raf=requestAnimationFrame(frame);}
-    if(R0)say(`Expedition resumed at ${lmst()}.`);else{say(`Sol ${sol}. Rover checked out at ${w.site.n}. ${w.site.d}`);say('Ten rock formations are marked on the map from orbital images.');if(opt.blind)say('Touchdown was off target among unseen rocks. A wheel took a knock: condition 88%.');}
+      draw();uiT-=el;if(uiT<=0){ui();drawMini();uiT=.2;if(S.map)drawMap();}if(now>=saveAt&&opt.save&&!S.done&&!S.stranded&&!S.broken){saveAt=now+3000;opt.save(snapshotState());}raf=requestAnimationFrame(frame);}
+    if(R0)say(`Expedition resumed at ${lmst()}.`);else{say(`Sol ${sol}. Rover checked out at ${w.site.n}. ${w.site.d}`);say(RC.forms==='exact'?'Ten rock formations are marked on the map from high-resolution orbital images.':RC.forms==='rough'?'Ten rock formations are roughly marked from context images: each lies somewhere inside its circle.':'No orbital images on file: rock formations have to be found by driving.');if(opt.blind)say('Touchdown was off target among unseen rocks. A wheel took a knock: condition 88%.');}
     ui();drawMini();cv.focus();raf=requestAnimationFrame(frame);
     /* test hooks */
     window.__rover={S,world:w,O,near,sp,key:(c,v)=>{S.keys[c]=v;},goto:(x,y)=>{S.x=x;S.y=y;S.v=0;cam.x=x;cam.y=y;},interact,photo,scanResult,microscope,contactScan,dock,toggleMap,togglePanel,end,snapshot:snapshotState,fault};
@@ -431,6 +471,6 @@ const Rover=(()=>{
     else if(cls==='carb'){for(let i=0;i<300;i++){x.fillStyle=`rgba(${220+r()*30|0},${200+r()*30|0},${160+r()*30|0},.7)`;x.fillRect(r()*w,r()*h,3+r()*6,2+r()*4);}}
     else{x.fillStyle='#7a5d4c';x.fillRect(0,0,w,h);for(let i=0;i<120;i++){const gx=w*.3+r()*w*.4,gy=r()*h;x.fillStyle='rgba(245,240,230,.85)';x.save();x.translate(gx,gy);x.rotate(r()*3);x.fillRect(-12,-2,24,4);x.restore();}}
     x.fillStyle='rgba(239,230,217,.8)';x.font='10px "Martian Mono",monospace';x.fillText('1 mm',w-50,h-10);x.fillRect(w-50,h-24,36,2);}
-  return {start,SITES,CLS,genForms};
+  return {start,SITES,CLS,genForms,COND,get dev(){return DEV;}};
 
 })();

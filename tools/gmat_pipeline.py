@@ -16,13 +16,16 @@ Model, stated plainly:
   * forces: point-mass gravity of the Sun, Venus, Jupiter and Saturn, Runge-Kutta 8(9) integrator;
   * departure from Earth's centre and arrival at Mars's centre (patched conic): the escape from Earth and
     the capture at Mars are not part of these runs, which is why Earth and Mars gravity are left out;
-  * for each departure day the arrival day is the one with the lowest departure energy plus arrival
-    speed (with a small preference for the game's own flight time)
-    within 45 days of it, avoiding transfers within 8 degrees of exactly half
-    an orbit (those need a steep, costly plane change). A two-body Lambert solution is only the starting
-    guess; GMAT's targeter corrects it with the full force model.
-The launch-window test is the same one the game uses (js/game.js plan()), evaluated with GMAT's planet
-positions, so the trajectories cover exactly the days the game can launch on.
+  * the flight time for each launch day comes from the game's route rule (QEph.route here, GM.route in
+    js/game.js): a transfer orbit with its perihelion at Earth's launch-day position and its aphelion at
+    Mars's actual distance (Hohmann) or 2.4% beyond it (fast route). That rule varies smoothly with the
+    launch day, so arrival dates never jump, and it is computed from the same rounded positions the game
+    uses, so both agree on the launch windows;
+  * GMAT's differential corrector then aims each in-window transfer at Mars's position on arrival day in
+    the ecliptic plane (varying the in-plane departure velocity). Mars's orbit is tilted 1.85 degrees, so
+    the craft passes up to a few million km above or below Mars; real near-180-degree transfers fix that
+    with a mid-course plane change. Aiming in the plane avoids the singular plane change of an exact
+    half-orbit transfer and the switching between short-way and long-way transfers from day to day.
 """
 import argparse, base64, json, math, os, struct, subprocess, sys, datetime
 
@@ -155,23 +158,71 @@ def lambert(r1, r2, dt):
 
 def norm(v): return math.sqrt(sum(c * c for c in v))
 
-def plan_cases(E):
+# ---------- the route rule, shared with js/game.js (GM.route) ----------
+# Both sides compute the route from the same rounded ephemeris (1e-4 AU, the numbers shipped in gmat_data.js),
+# so the game and this script agree on flight times and launch windows to the day.
+class QEph:
+    def __init__(self, E):
+        self.rows = []
+        for r in E.rows:
+            self.rows.append([q(r[o + j] / AU, 1e4) * 1e-4 for o in (1, 7) for j in range(3)])
+        n = len(self.rows)
+        tab = []
+        for i in range(min(691, n)):
+            x, y, _ = self.pos(-EPH_PRE + i, 1); tab.append((math.atan2(y, x), math.hypot(x, y)))
+        tab.sort(); self.mtab = tab
+    def pos(self, d, b):        # same clamping and linear interpolation as GM.pos in js/game.js
+        n = len(self.rows); x = max(0, min(n - 1.001, d + EPH_PRE)); i = int(math.floor(x)); f = x - i
+        a, c = self.rows[i], self.rows[i + 1]; o = 3 * b
+        return [a[o + j] + (c[o + j] - a[o + j]) * f for j in range(3)]
+    def lon(self, d, b):
+        p = self.pos(d, b); return math.degrees(math.atan2(p[1], p[0]))
+    def rmars(self, lam):       # Mars's distance from the Sun (ecliptic plane) at heliocentric longitude lam
+        T = self.mtab; lam = (lam + math.pi) % (2 * math.pi) - math.pi
+        lo, hi = 0, len(T)
+        while lo < hi:
+            m = (lo + hi) // 2
+            if T[m][0] < lam: lo = m + 1
+            else: hi = m
+        a = T[(lo - 1) % len(T)]; b = T[lo % len(T)]
+        la, lb = a[0], b[0]
+        if lb <= la: lb += 2 * math.pi
+        l = lam if lam >= la else lam + 2 * math.pi
+        f = 0 if lb == la else (l - la) / (lb - la)
+        return a[1] + (b[1] - a[1]) * f
+    def route(self, d, ratio):
+        """The game's route on launch day d: leave Earth's actual position on a transfer orbit whose perihelion is
+        there and whose aphelion is ratio x Mars's actual distance at the arrival longitude (ratio 1 = Hohmann)."""
+        e1 = self.pos(d, 0); r1 = math.hypot(e1[0], e1[1]); l1 = math.atan2(e1[1], e1[0]); nu = math.pi
+        for _ in range(12):
+            r2 = self.rmars(l1 + nu); Q = r2 * ratio; a = (r1 + Q) / 2; e = (Q - r1) / (Q + r1); p = a * (1 - e * e)
+            nn = math.pi if ratio <= 1.0000001 else math.acos(max(-1, min(1, (p / r2 - 1) / e)))
+            if abs(nn - nu) < 1e-10: nu = nn; break
+            nu = nn
+        r2 = self.rmars(l1 + nu); Q = r2 * ratio; a = (r1 + Q) / 2; e = (Q - r1) / (Q + r1); p = a * (1 - e * e)
+        E_ = 2 * math.atan2(math.sqrt(1 - e) * math.sin(nu / 2), math.sqrt(1 + e) * math.cos(nu / 2))
+        P = 2 * math.pi * math.sqrt((a * AU) ** 3 / MU) / 86400
+        T = (E_ - e * math.sin(E_)) / (2 * math.pi) * P
+        return {'r1': r1, 'l1': l1, 'nu': nu, 'r2': r2, 'a': a, 'e': e, 'p': p, 'P': P, 'T': T, 'lA': l1 + nu}
+
+def plan_cases(E, QE):
     cases = []
     for key, Q in TR.items():
-        tr = transfer(Q); T = tr['T']
-        miss = lambda d: wrap(E.lon(d + T, 1) - (E.lon(d, 0) + math.degrees(tr['nu'])))
-        open_days = [d for d in range(HORIZON + 1) if abs(miss(d)) <= 10]
+        ratio = Q / RM
+        routes = {d: QE.route(d, ratio) for d in range(HORIZON + 1)}
+        miss = {d: wrap(QE.lon(d + routes[d]['T'], 1) - math.degrees(routes[d]['lA'])) for d in routes}
+        open_days = [d for d in routes if abs(miss[d]) <= 10]
         days = sorted(set(x for d in open_days for x in range(d - 4, d + 5) if 0 <= x <= HORIZON))
         for d in days:
-            r1, ve = E.at(d, 0); best = None
-            for tof in range(int(T) - 45, int(T) + 46, 2):
-                r2, vm = E.at(d + tof, 1); v1, v2, dth = lambert(r1, r2, tof * 86400)
-                if abs(dth - 180) < 8: continue
-                c3 = norm([v1[i] - ve[i] for i in range(3)]) ** 2; vi = norm([v2[i] - vm[i] for i in range(3)])
-                cost = math.sqrt(c3) + vi + 0.02 * abs(tof - T)   # small preference for the game's own flight time
-                if best is None or cost < best[0]: best = (cost, tof, v1, c3, vi, dth)
-            if best: cases.append({'type': key, 'd': d, 'tof': best[1], 'guess': best[2], 'r1': r1, 've': ve, 'dth': best[5]})
-        print(key, 'game flight time %.1f d, %d open days, %d cases' % (T, len(open_days), len([c for c in cases if c['type'] == key])))
+            rt = routes[d]; r1, ve = E.at(d, 0)
+            # starting guess: the route's own departure velocity, prograde and perpendicular to the Sun line, in the ecliptic
+            rk = math.hypot(r1[0], r1[1]); v = math.sqrt(MU * (2 / rk - 1 / (rt['a'] * AU)))
+            guess = [-r1[1] / rk * v, r1[0] / rk * v, ve[2]]
+            cases.append({'type': key, 'd': d, 'tof': round(rt['T'], 4), 'guess': guess, 'r1': r1, 've': ve,
+                          'dth': round(math.degrees(rt['nu']) + miss[d], 1), 'routeMiss': miss[d]})
+        Ts = [routes[d]['T'] for d in open_days]
+        print(key, 'route flight time %.1f-%.1f d over the horizon, %d open days, %d cases' %
+              (min(r['T'] for r in routes.values()), max(r['T'] for r in routes.values()), len(open_days), len([c for c in cases if c['type'] == key])))
     return cases
 
 # ---------- 2. GMAT targets each transfer to reach Mars ----------
@@ -187,17 +238,15 @@ def target(R, cases):
         s += f"""Target DC {{SolveMode = Solve, ExitMode = SaveAndContinue}};
   Vary DC(vx = {g[0]:.9f}, {{Perturbation = 0.00001, MaxStep = 0.3, Lower = -80, Upper = 80}});
   Vary DC(vy = {g[1]:.9f}, {{Perturbation = 0.00001, MaxStep = 0.3, Lower = -80, Upper = 80}});
-  Vary DC(vz = {g[2]:.9f}, {{Perturbation = 0.00001, MaxStep = 0.3, Lower = -80, Upper = 80}});
   GMAT {n}.VX = vx;
   GMAT {n}.VY = vy;
-  GMAT {n}.VZ = vz;
+  GMAT {n}.VZ = {g[2]:.9f};
   Propagate prop({n}) {{{n}.ElapsedDays = {c['tof']}}};
   GMAT dX = {n}.SunEc.X - Mars.SunEc.X;
   GMAT dY = {n}.SunEc.Y - Mars.SunEc.Y;
   GMAT dZ = {n}.SunEc.Z - Mars.SunEc.Z;
   Achieve DC(dX = 0, {{Tolerance = 500}});
   Achieve DC(dY = 0, {{Tolerance = 500}});
-  Achieve DC(dZ = 0, {{Tolerance = 500}});
 EndTarget;
 Report rep vx vy vz dX dY dZ;
 """
@@ -205,7 +254,7 @@ Report rep vx vy vz dX dY dZ;
     rows = read_rows(out)
     assert len(rows) == len(cases)
     for c, r in zip(cases, rows):
-        c['v'] = r[:3]; c['miss_km'] = norm(r[3:6])
+        c['v'] = [r[0], r[1], c['guess'][2]]; c['miss_km'] = norm(r[3:5]); c['dz_km'] = abs(r[5])
     return cases
 
 # ---------- 3. GMAT propagates each targeted transfer, reporting every two days ----------
@@ -216,9 +265,11 @@ def propagate(R, cases):
         s += sc_block('s%d' % i, MJD_BASE + c['d'], c['r1'], c['v'])
     s += "BeginMissionSequence;\n"
     for i, c in enumerate(cases):
-        n = 's%d' % i; steps = c['tof'] // 2
-        s += f"GMAT cid = {i};\nReport rep cid {n}.SunEc.X {n}.SunEc.Y {n}.SunEc.Z {n}.SunEc.VX {n}.SunEc.VY {n}.SunEc.VZ;\nGMAT k = 0;\n" + \
-             f"While k < {steps}\n  Propagate prop({n}) {{{n}.ElapsedDays = 2}};\n  Report rep cid {n}.SunEc.X {n}.SunEc.Y {n}.SunEc.Z {n}.SunEc.VX {n}.SunEc.VY {n}.SunEc.VZ;\n  GMAT k = k + 1;\nEndWhile;\n"
+        n = 's%d' % i; steps = int(c['tof'] // 2); rest = c['tof'] - 2 * steps
+        rep = f"Report rep cid {n}.SunEc.X {n}.SunEc.Y {n}.SunEc.Z {n}.SunEc.VX {n}.SunEc.VY {n}.SunEc.VZ;\n"
+        s += f"GMAT cid = {i};\n" + rep + "GMAT k = 0;\n" + \
+             f"While k < {steps}\n  Propagate prop({n}) {{{n}.ElapsedDays = 2}};\n  " + rep + "  GMAT k = k + 1;\nEndWhile;\n"
+        if rest > 1e-6: s += f"Propagate prop({n}) {{{n}.ElapsedDays = {rest:.6f}}};\n" + rep
     R.run('prop', s)
     for c in cases: c['pts'] = []
     for r in read_rows(out): cases[int(r[0])]['pts'].append(r[1:])
@@ -237,7 +288,8 @@ def main():
     a = ap.parse_args()
     R = Runner(a.gmat, a.wine, a.work)
     E = Eph(ephemeris(R)); print('ephemeris rows', len(E.rows))
-    cases = target(R, plan_cases(E))
+    QE = QEph(E)
+    cases = target(R, plan_cases(E, QE))
     bad = [c for c in cases if c['miss_km'] > 5000]
     if bad: print('not converged (dropped):', [(c['type'], c['d']) for c in bad])
     cases = propagate(R, [c for c in cases if c['miss_km'] <= 5000])
@@ -253,11 +305,12 @@ def main():
         pts = []
         for p in c['pts']: pts += [q(p[0] / AU, 1e4), q(p[1] / AU, 1e4), q(p[2] / AU, 1e4), q(norm(p[3:6]), 100)]
         trans[c['type']].append({'d': c['d'], 'tof': c['tof'], 'c3': round(c3, 2), 'vinf': round(vinf, 3), 'dth': round(c['dth'], 1),
-                                 'miss': round(c['miss_km']), 'p': pack(pts)})
+                                 'miss': round(c['miss_km']), 'dz': round(c['dz_km'] / 1e6, 2), 'p': pack(pts)})
     meta = {'tool': 'NASA GMAT R2026a (GmatConsole)', 'ephemeris': 'DE421', 'frame': 'Sun-centred, mean ecliptic of J2000',
             'forces': 'point-mass Sun, Venus, Jupiter, Saturn; RK89', 'base': BASE.strftime('%Y-%m-%d'), 'ephStart': -EPH_PRE,
             'ephDays': len(E.rows), 'step': 2, 'made': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'),
-            'note': 'Patched conic: departs Earth centre, arrives Mars centre. Escape and capture are not in these runs.'}
+            'note': 'Patched conic: departs Earth centre, arrives at Mars centre in the ecliptic plane (Mars is up to 1.85 deg above or below it; dz, million km, is left to a mid-course plane change). Flight time follows the game route rule (GM.route). Escape and capture are not in these runs.',
+            'route': 'perihelion at Earth on launch day, aphelion = ratio x Mars distance at arrival longitude; ratio hohmann 1, fast %.5f' % (TR['fast'] / RM)}
     with open(a.out, 'w') as fh:
         fh.write('/* Generated by tools/gmat_pipeline.py from NASA GMAT runs. Do not edit by hand. */\n')
         fh.write('window.GMAT_DATA=' + json.dumps({'meta': meta, 'eph': pack(eph), 'trans': trans}, separators=(',', ':')) + ';\n')

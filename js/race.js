@@ -199,18 +199,27 @@ const Race=(()=>{
   function lostLink(e){const el=document.getElementById('raceBoard');if(el)el.classList.add('lost');
     const why=e&&e.type==='host-left'?'The host left. The race is over; your mission carries on.':'Connection to the race relay dropped. Reconnecting…';
     if(typeof toast==='function')toast(why);board=board.map(r=>r);drawBoard(why);}
-  function rows(){const R=(board.length?board:[{name:myName,...local()}]).slice();
-    R.sort((a,b)=>(b.done?b.final:b.score||0)-(a.done?a.final:a.score||0)||(a.t||0)-(b.t||0));return R;}
+  /* Speed multiplier, 1.00x to 1.15x. Only completed (not failed) missions get one. The reference is the slowest
+     completed mission: finishing in half its time or less earns the full 1.15x, the same time earns 1.00x, and it is
+     linear in between. With one completed mission there is nothing to compare, so 1.00x. The mission score stays the
+     main thing: at most +15%. Every client computes this from the same board, so everyone sees the same numbers. */
+  const MULT_MAX=0.15;
+  function speedMult(r,R){if(!r.done||r.failed)return 1;const ok=R.filter(x=>x.done&&!x.failed&&x.t>0);if(ok.length<2)return 1;
+    const ref=Math.max(...ok.map(x=>x.t)),f=Math.max(0,Math.min(1,((ref-r.t)/ref)/0.5));return Math.round((1+MULT_MAX*f)*100)/100;}
+  function rank(list){const R=list.map(r=>Object.assign({},r));
+    R.forEach(r=>{r.mult=speedMult(r,R);r.adj=r.done?Math.round((r.final||0)*r.mult):Math.round(r.score||0);});
+    R.sort((a,b)=>b.adj-a.adj||(a.t||0)-(b.t||0));return R;}
+  function rows(){return rank(board.length?board:[{name:myName,...local()}]);}
   function drawBoard(note){let el=document.getElementById('raceBoard');if(!role||!cfg.started){if(el)el.remove();return;}
     if(!el){el=document.createElement('aside');el.id='raceBoard';el.className='raceboard min';document.body.appendChild(el);document.body.classList.add('racing');el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.a==='min'){el.classList.toggle('min');drawBoard();}if(b.dataset.a==='res')results(true);if(b.dataset.a==='leave'){leave();}});}
     const me=myName,R=rows(),mine=R.findIndex(r=>r.name===me)+1;
     el.innerHTML=`<div class="row between"><p class="kicker">Race ${code} · ${mine?`you ${mine} of ${R.length}`:''} · ${fmtT(t0?(Date.now()-t0)/1000:0)}</p><span class="row"><button type="button" class="ghost sm" data-a="min" aria-label="Show or hide the leaderboard">${el.classList.contains('min')?'▴':'▾'}</button></span></div>
-      <ol class="rb">${R.map((r,i)=>`<li class="${r.name===me?'me':''} ${r.gone?'gone':''}"><b class="num">${i+1}</b><span class="nm">${esc(r.name)}</span><span class="st">${r.done?(r.failed?'Failed':'Finished'):r.gone?'Left':esc(r.stage||'Starting')}${r.done||r.gone?'':` · ${r.step||0}/${r.of||'?'}`}</span><b class="num sc" title="${r.done?'Final score':'Score so far'}">${Math.round(r.done?r.final:r.score||0)}</b></li>`).join('')}</ol><p class="dim mono" style="font-size:.54rem;margin:0">Scores are provisional until each player reaches the debrief.</p>
+      <ol class="rb">${R.map((r,i)=>`<li class="${r.name===me?'me':''} ${r.gone?'gone':''}"><b class="num">${i+1}</b><span class="nm">${esc(r.name)}</span><span class="st">${r.done?(r.failed?'Failed':'Finished'):r.gone?'Left':esc(r.stage||'Starting')}${r.done||r.gone?'':` · ${r.step||0}/${r.of||'?'}`}</span><b class="num sc" title="${r.done?`Final score ${Math.round(r.final||0)} × speed ${r.mult.toFixed(2)}`:'Score so far'}">${r.adj}</b></li>`).join('')}</ol><p class="dim mono" style="font-size:.54rem;margin:0">Scores are provisional until each player reaches the debrief.</p>
       ${note?`<p class="dim" style="font-size:.74rem">${note}</p>`:''}<div class="row">${over?'<button type="button" class="btn sm" data-a="res">Results</button>':''}<button type="button" class="ghost sm" data-a="leave">Leave race</button></div>`;}
   function results(force){if(ov&&!force)return;const R=rows();
     const o=overlay(`<p class="kicker">Race ${code} · mission ${cfg.mission}</p><h3>Results</h3>
-      <div class="tw"><table><tr><th>#</th><th>Call sign</th><th>Score</th><th>Time</th><th></th></tr>${R.map((r,i)=>`<tr class="${r.name===myName?'me':''}"><td class="num">${i+1}</td><td>${esc(r.name)}</td><td class="num">${Math.round(r.done?r.final:r.score||0)}</td><td class="num">${r.done?fmtT(r.t||0):'—'}</td><td>${r.done?(r.failed?'mission failed':esc(r.cls||'')):r.gone?'left':'did not finish'}</td></tr>`).join('')}</table></div>
-      <p class="dim" style="font-size:.84rem">Ranking: final score, then time. A failed mission keeps the score it earned.</p>
+      <div class="tw"><table><tr><th>#</th><th>Call sign</th><th>Mission score</th><th>Time</th><th>Speed</th><th>Race score</th><th></th></tr>${R.map((r,i)=>`<tr class="${r.name===myName?'me':''}"><td class="num">${i+1}</td><td>${esc(r.name)}</td><td class="num">${r.done?Math.round(r.final||0):Math.round(r.score||0)}</td><td class="num">${r.done?fmtT(r.t||0):'—'}</td><td class="num">${r.done?`×${r.mult.toFixed(2)}`:'—'}</td><td class="num"><b>${r.adj}</b></td><td>${r.done?(r.failed?'mission failed':esc(r.cls||'')):r.gone?'left':'did not finish'}</td></tr>`).join('')}</table></div>
+      <p class="dim" style="font-size:.84rem">Race score = mission score × speed. Speed is 1.00× to 1.15×: compared with the slowest completed mission, finishing in half its time or less earns 1.15×, the same time 1.00×, linear in between. A failed mission always gets 1.00× and keeps the score it earned. With only one completed mission there is nothing to compare, so 1.00×.${R.some(r=>!r.done&&!r.gone)?' Players still flying can change the speed figures until they finish.':''}</p>
       <div class="row"><button type="button" class="ghost" id="rcX">Close</button><button type="button" class="btn" id="rcL">Leave race</button></div>`);
     o.querySelector('#rcX').onclick=close;o.querySelector('#rcL').onclick=()=>{leave();close();};}
   function leave(){session++;clearInterval(tick);clearInterval(beat);clearTimeout(sendT);
@@ -222,6 +231,6 @@ const Race=(()=>{
   function pending(){try{return JSON.parse(sessionStorage.getItem('mcb-race'));}catch(e){return null;}}
   async function rejoin(){const p=pending();if(!p||p.role!=='guest')return false;await join(p.code,p.name);return true;}
   addEventListener('pagehide',()=>{try{if(role==='guest'){out('up',{t:'left',id:myId});links.forEach(l=>l.close());}}catch(e){}});
-  return {open,host,join,leave,finish,stage,results,rejoin,pending,check,get relay(){return links.map(l=>l.label).join(',');},get routes(){return routes;},active:()=>!!role&&cfg.started,inRoom:()=>!!role,get code(){return code;},get board(){return board;},get role(){return role;},get cfg(){return cfg;}};
+  return {open,host,join,leave,finish,stage,results,rejoin,pending,check,rank,get relay(){return links.map(l=>l.label).join(',');},get routes(){return routes;},active:()=>!!role&&cfg.started,inRoom:()=>!!role,get code(){return code;},get board(){return board;},get role(){return role;},get cfg(){return cfg;}};
 })();
 window.Race=Race;
